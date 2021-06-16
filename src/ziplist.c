@@ -697,14 +697,25 @@ static inline void zipAssertValidEntry(unsigned char* zl, size_t zlbytes, unsign
     assert(zipEntrySafe(zl, zlbytes, p, &e, 1));
 }
 
-/* Create a new empty ziplist. */
+/* Create a new empty ziplist.
+ *
+ * 创建并返回一个空的 ziplist
+ *
+ * T = O(1)
+ */
 unsigned char *ziplistNew(void) {
     unsigned int bytes = ZIPLIST_HEADER_SIZE+ZIPLIST_END_SIZE;
+    // 为表头和表尾分配空间
     unsigned char *zl = zmalloc(bytes);
-    ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
-    ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
-    ZIPLIST_LENGTH(zl) = 0;
+
+    // 初始化 ziplist 属性
+    ZIPLIST_BYTES(zl) = intrev32ifbe(bytes); // zlbytes
+    ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE); // zltail
+    ZIPLIST_LENGTH(zl) = 0; // zlend
+
+    // 设置表尾
     zl[bytes-1] = ZIP_END;
+
     return zl;
 }
 

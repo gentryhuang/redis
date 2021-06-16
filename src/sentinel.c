@@ -498,6 +498,7 @@ const char *preMonitorCfgName[] = {
 
 /* This function overwrites a few normal Redis config default with Sentinel
  * specific defaults. */
+// 该函数会用 Sentinel 所属的属性覆盖服务器默认的属性
 void initSentinelConfig(void) {
     server.port = REDIS_SENTINEL_PORT;
     server.protected_mode = 0; /* Sentinel must be exposed. */
@@ -511,8 +512,9 @@ void initSentinel(void) {
 
     /* Remove usual Redis commands from the command table, then just add
      * the SENTINEL command. */
-    dictEmpty(server.commands,NULL);
-    dictEmpty(server.orig_commands,NULL);
+    dictEmpty(server.commands,NULL); // 清空服务器的命令表，该命令表用于普通模式
+    dictEmpty(server.orig_commands,NULL); // 将 SENTINEL 模式所用的命令添加进命令表
+
     ACLClearCommandID();
     for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
         int retval;
@@ -530,8 +532,8 @@ void initSentinel(void) {
     }
 
     /* Initialize various data structures. */
-    sentinel.current_epoch = 0;
-    sentinel.masters = dictCreate(&instancesDictType,NULL);
+    sentinel.current_epoch = 0; // 初始化纪元
+    sentinel.masters = dictCreate(&instancesDictType,NULL); // 初始化保存主服务器信息的字典
     sentinel.tilt = 0;
     sentinel.tilt_start_time = 0;
     sentinel.previous_time = mstime();

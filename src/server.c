@@ -2464,11 +2464,12 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 }
 
 /* =========================== Server initialization ======================== */
-
+// 创建共享对象
 void createSharedObjects(void) {
     int j;
 
     /* Shared command responses */
+    // 共享命令响应对象
     shared.crlf = createObject(OBJ_STRING, sdsnew("\r\n"));
     shared.ok = createObject(OBJ_STRING, sdsnew("+OK\r\n"));
     shared.emptybulk = createObject(OBJ_STRING, sdsnew("$0\r\n\r\n"));
@@ -2483,6 +2484,7 @@ void createSharedObjects(void) {
     shared.plus = createObject(OBJ_STRING, sdsnew("+"));
 
     /* Shared command error responses */
+    // 共享错误响应对象
     shared.wrongtypeerr = createObject(OBJ_STRING, sdsnew(
             "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
     shared.err = createObject(OBJ_STRING, sdsnew("-ERR\r\n"));
@@ -2538,6 +2540,7 @@ void createSharedObjects(void) {
     shared.emptyset[2] = createObject(OBJ_STRING, sdsnew("*0\r\n"));
     shared.emptyset[3] = createObject(OBJ_STRING, sdsnew("~0\r\n"));
 
+    // 共享 SELECT 命令 对象
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
         int dictid_len;
@@ -2548,6 +2551,8 @@ void createSharedObjects(void) {
                                                      "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
                                                      dictid_len, dictid_str));
     }
+
+    // 服务与订阅有关回复
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n", 13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n", 14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n", 15);
@@ -2556,6 +2561,7 @@ void createSharedObjects(void) {
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n", 19);
 
     /* Shared command names */
+    // 共享命令名
     shared.del = createStringObject("DEL", 3);
     shared.unlink = createStringObject("UNLINK", 6);
     shared.rpop = createStringObject("RPOP", 4);
@@ -2581,6 +2587,7 @@ void createSharedObjects(void) {
     shared.eval = createStringObject("EVAL", 4);
 
     /* Shared command argument */
+    // 共享命令参数
     shared.left = createStringObject("left", 4);
     shared.right = createStringObject("right", 5);
     shared.pxat = createStringObject("PXAT", 4);
@@ -2601,11 +2608,13 @@ void createSharedObjects(void) {
     shared.special_equals = createStringObject("=", 1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)", 10));
 
+    // 共享整数
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
                 makeObjectShared(createObject(OBJ_STRING, (void *) (long) j));
         shared.integers[j]->encoding = OBJ_ENCODING_INT;
     }
+
     for (j = 0; j < OBJ_SHARED_BULKHDR_LEN; j++) {
         shared.mbulkhdr[j] = createObject(OBJ_STRING,
                                           sdscatprintf(sdsempty(), "*%d\r\n", j));
@@ -2620,6 +2629,7 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+// 初始化服务器
 void initServerConfig(void) {
     int j;
 
@@ -2682,6 +2692,7 @@ void initServerConfig(void) {
     appendServerSaveParams(60, 10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
+    // 复制相关
     server.masterauth = NULL;
     server.masterhost = NULL;
     server.masterport = 6379;
@@ -2694,14 +2705,17 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.master_repl_offset = 0;
+    server.master_repl_offset = 0; // 当前累计写入buf的总偏移量，它永远递增
 
     /* Replication partial resync backlog */
+    // 初始化 PSYNC 命令所使用的 backlog
     server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
-    server.repl_backlog_off = 0;
+    server.repl_backlog_histlen = 0; // 当前的有效buf长度
+    server.repl_backlog_idx = 0; // backlog 中最新写入的位置
+    server.repl_backlog_off = 0; // 指向当前有效buf的起始偏移量
     server.repl_no_slaves_since = time(NULL);
+
+    // 三者关系： repl_backlog_off = master_repl_offset - repl_backlog_histlen + 1
 
     /* Failover related */
     server.failover_end_time = 0;
@@ -2711,6 +2725,7 @@ void initServerConfig(void) {
     server.failover_state = NO_FAILOVER;
 
     /* Client output buffer limits */
+    // 设置客户端的输出缓冲区限制
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
@@ -2719,6 +2734,7 @@ void initServerConfig(void) {
         server.oom_score_adj_values[j] = configOOMScoreAdjValuesDefaults[j];
 
     /* Double constants initialization */
+    // 初始化浮点数
     R_Zero = 0.0;
     R_PosInf = 1.0 / R_Zero;
     R_NegInf = -1.0 / R_Zero;
@@ -2727,6 +2743,7 @@ void initServerConfig(void) {
     /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
+    // 初始化部分命令表，因为接下来要读取 .conf 文件时可能会用到这些命令
     server.commands = dictCreate(&commandTableDictType, NULL);
     server.orig_commands = dictCreate(&commandTableDictType, NULL);
     populateCommandTable();
@@ -3124,9 +3141,11 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+// 创建并初始化服务器数据结构
 void initServer(void) {
     int j;
 
+    // 设置信号处理函数
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
@@ -3138,6 +3157,7 @@ void initServer(void) {
     }
 
     /* Initialization after setting defaults from the config system. */
+    // 从配置系统设置默认值 后进行初始化。
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
     server.pid = getpid();
@@ -3163,7 +3183,7 @@ void initServer(void) {
     server.client_pause_type = 0;
     server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
-    server.system_memory_size = zmalloc_get_memory_size();
+    server.system_memory_size = zmalloc_get_memory_size(); // 获取物理内存大小，以字节为单位
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
 
@@ -3173,7 +3193,9 @@ void initServer(void) {
         exit(1);
     }
 
+    // 创建共享对象
     createSharedObjects();
+
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
@@ -3184,9 +3206,12 @@ void initServer(void) {
                   strerror(errno));
         exit(1);
     }
+
+
     server.db = zmalloc(sizeof(redisDb) * server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+    // 打开 TCP 监听端口，用于等待客户端的命令请求
     if (server.port != 0 &&
         listenToPort(server.port, &server.ipfd) == C_ERR) {
         serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
@@ -3199,6 +3224,7 @@ void initServer(void) {
     }
 
     /* Open the listening Unix domain socket. */
+    // 打开 UNIX 本地端口
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr, server.unixsocket,
@@ -3218,6 +3244,7 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
+    // 创建并初始化 Redis 数据库相关结构。
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType, NULL);
         server.db[j].expires = dictCreate(&dbExpiresDictType, NULL);
@@ -3291,12 +3318,15 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    // 创建一个事件处理程序，用于在TCP和Unix域套接字中接受新连接。
     if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
     if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
+
+    // 为本地套接字关联事件处理程序
     if (server.sofd > 0 && aeCreateFileEvent(server.el, server.sofd, AE_READABLE,
                                              acceptUnixHandler, NULL) == AE_ERR)
         serverPanic("Unrecoverable error creating server.sofd file event.");
@@ -3317,6 +3347,7 @@ void initServer(void) {
     aeSetAfterSleepProc(server.el, afterSleep);
 
     /* Open the AOF file if needed. */
+    // 如果 AOF 持久化功能已经打开，那么打开或创建一个 AOF 文件
     if (server.aof_state == AOF_ON) {
         server.aof_fd = open(server.aof_filename,
                              O_WRONLY | O_APPEND | O_CREAT, 0644);
@@ -3338,9 +3369,16 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    // 如果服务器以 cluster 模式打开，那么就初始化 cluster
     if (server.cluster_enabled) clusterInit();
+
+    // 初始化复制功能有关的脚本缓存
     replicationScriptCacheInit();
+
+    // 初始化脚本系统
     scriptingInit(1);
+
+    // 初始化慢查询功能
     slowlogInit();
     latencyMonitorInit();
 
@@ -6122,6 +6160,7 @@ redisTestProc *getTestProcByName(const char *name) {
 }
 #endif
 
+// Redis Server 启动入口
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -6168,6 +6207,7 @@ int main(int argc, char **argv) {
 #endif
 
     /* We need to initialize our libraries, and the server configuration. */
+    // 初始化库
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
@@ -6189,8 +6229,13 @@ int main(int argc, char **argv) {
     uint8_t hashseed[16];
     getRandomBytes(hashseed, sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
+
+    // 检查服务器是否以 Sentinel 模式启动
     server.sentinel_mode = checkForSentinelMode(argc, argv);
+
+    // 初始化服务器
     initServerConfig();
+
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
@@ -6206,8 +6251,10 @@ int main(int argc, char **argv) {
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    // 如果服务器以 Sentinel 模式启动，那么进行 Sentinel 功能相关的初始化，并为要监视的主服务器创建一些相应的数据结构
     if (server.sentinel_mode) {
         initSentinelConfig();
+        // 执行哨兵模式初始化
         initSentinel();
     }
 
@@ -6219,6 +6266,7 @@ int main(int argc, char **argv) {
     else if (strstr(argv[0], "redis-check-aof") != NULL)
         redis_check_aof_main(argc, argv);
 
+    // 检查用户是否指定了配置文件，或者配置选项
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
@@ -6280,6 +6328,8 @@ int main(int argc, char **argv) {
     if (server.sentinel_mode) sentinelCheckConfigFile();
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
+
+    // 将服务器设置为守护进程
     if (background) daemonize();
 
     serverLog(LL_WARNING, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
@@ -6300,7 +6350,10 @@ int main(int argc, char **argv) {
     }
 
     readOOMScoreAdj();
+
+    // 创建并初始化服务器数据结构
     initServer();
+
     if (background || server.pidfile) createPidFile();
     if (server.set_proc_title) redisSetProcTitle(NULL);
     redisAsciiArt();

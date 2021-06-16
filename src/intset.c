@@ -94,10 +94,21 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
     }
 }
 
-/* Create an empty intset. */
+/* Create an empty intset.
+ *
+ * 创建并返回一个新的空整数集合
+ *
+ * T= O(1)
+ *
+ */
 intset *intsetNew(void) {
+    // 为整数集合结构分配空间
     intset *is = zmalloc(sizeof(intset));
+
+    // 设置初始化编码
     is->encoding = intrev32ifbe(INTSET_ENC_INT16);
+
+    // 初始化元素数量
     is->length = 0;
     return is;
 }

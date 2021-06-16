@@ -76,20 +76,33 @@ zskiplistNode *zslCreateNode(int level, double score, sds ele) {
     return zn;
 }
 
-/* Create a new skiplist. */
+/* Create a new skiplist.
+ *
+ * 创建并返回一个新的跳表
+ *
+ * T = O(1)
+ *
+ */
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
 
+    // 分配空间
     zsl = zmalloc(sizeof(*zsl));
+
+    // 设置起始层数和高度
     zsl->level = 1;
     zsl->length = 0;
+
+    // 初始化表头节点
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
         zsl->header->level[j].forward = NULL;
         zsl->header->level[j].span = 0;
     }
     zsl->header->backward = NULL;
+
+    // 设置表尾
     zsl->tail = NULL;
     return zsl;
 }

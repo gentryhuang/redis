@@ -70,7 +70,12 @@ static void _dictReset(dict *ht) {
     ht->used = 0;
 }
 
-/* Create a new hash table */
+/* Create a new hash table
+ *
+ * 创建一个新的字典
+ *
+ * T = O(1)
+ */
 static dict *dictCreate(dictType *type, void *privDataPtr) {
     dict *ht = hi_malloc(sizeof(*ht));
     if (ht == NULL)

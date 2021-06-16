@@ -42,6 +42,12 @@ extern const char *SDS_NOINIT;
 
 typedef char *sds;
 
+/**
+ * 说明：
+ * 1 sdshdrN: 其中的 N 表示当前的 SDS 可以存储的字节数为 2^N
+ * 2 sdshdrN 中的 flags 用于标志是哪种 sds
+ */
+
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
 struct __attribute__ ((__packed__)) sdshdr5 {
@@ -49,9 +55,13 @@ struct __attribute__ ((__packed__)) sdshdr5 {
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
+    // 数组实际长度
     uint8_t len; /* used */
+    // 分配的数组的长度
     uint8_t alloc; /* excluding the header and null terminator */
+    // sdshdr 类型
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    // 数组内容
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {

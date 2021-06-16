@@ -479,6 +479,7 @@ void clusterUpdateMyselfFlags(void) {
 void clusterInit(void) {
     int saveconf = 0;
 
+    // 初始化配置
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
@@ -519,9 +520,12 @@ void clusterInit(void) {
         clusterAddNode(myself);
         saveconf = 1;
     }
+
+    // 保存 nodes.conf 文件
     if (saveconf) clusterSaveConfigOrDie(1);
 
     /* We need a listening TCP port for our cluster messaging needs. */
+    // 监听 TCP 端口
     server.cfd.count = 0;
 
     /* Port sanity check II
@@ -538,11 +542,13 @@ void clusterInit(void) {
     if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
         exit(1);
     }
+    // 关联事件处理程序
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
     /* The slots -> keys map is a radix tree. Initialize it here. */
+    // slots -> keys 映射是一个有序集合
     server.cluster->slots_to_keys = raxNew();
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
