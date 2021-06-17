@@ -80,45 +80,67 @@ struct redisServer server; /* Server global state */
 
 /* Our command table.
  *
+ * 命令表
+ *
  * Every entry is composed of the following fields:
  *
+ * 表中的每个项都由以下域组成：
+ *
  * name:        A string representing the command name.
+ *              命令名
  *
  * function:    Pointer to the C function implementing the command.
+ *              命令对函数的指针
  *
  * arity:       Number of arguments, it is possible to use -N to say >= N
+ *              参数的数量，可以用 -N 表示 >= N
  *
- * sflags:      Command flags as string. See below for a table of flags.
+ * sflags:      Command flags as string. See below for a table of flags.\
+ *              字符串形式的 FLAG ，用来计算 glags
  *
  * flags:       Flags as bitmask. Computed by Redis using the 'sflags' field.
+ *              位掩码形式的 FLAG，根据 sflags 的字符串计算得出
  *
  * get_keys_proc: An optional function to get key arguments from a command.
  *                This is only used when the following three fields are not
  *                enough to specify what arguments are keys.
+ *                一个可选的函数，用于从命令中取初 key 参数，仅在以下三个参数都不足以表示 key 参数时使用
  *
  * first_key_index: First argument that is a key
+ *                  第一个 key 参数的位置
  *
  * last_key_index: Last argument that is a key
+ *                  最后一个 key 参数的位置
  *
  * key_step:    Step to get all the keys from first to last argument.
  *              For instance in MSET the step is two since arguments
  *              are key,val,key,val,...
+ *               从 first 参数和 last 参数之间，所有 key 的步数（step），比如说， MSET 命令的格式为 MSET key value [key value ...]， 它的 step 就为 2
  *
  * microseconds: Microseconds of total execution time for this command.
+ *               执行对应的命令耗费的总微秒数
  *
  * calls:       Total number of calls of this command.
+ *              命令被执行的总次数
  *
  * id:          Command bit identifier for ACLs or other goals.
+ *              acl或其他目标的命令位标识符
  *
  * The flags, microseconds and calls fields are computed by Redis and should
  * always be set to zero.
  *
+ * flags, microseconds and calls 由 Redis 计算，总是初始化为 0
+ *
  * Command flags are expressed using space separated strings, that are turned
  * into actual flags by the populateCommandTable() function.
  *
+ * 命令 FLAG 使用空格分隔的字符串表示，populateCommandTable() 函数将其转换为实际标志。
+ *
  * This is the meaning of the flags:
+ * 以下是各个 FLAG 的意义：
  *
  * write:       Write command (may modify the key space).
+ *              写入命令，可能会修改 key space
  *
  * read-only:   Commands just reading from keys without changing the content.
  *              Note that commands that don't read from the keyspace such as
@@ -126,43 +148,58 @@ struct redisServer server; /* Server global state */
  *              or transaction related commands (multi, exec, discard, ...)
  *              are not flagged as read-only commands, since they affect the
  *              server or the connection in other ways.
+ *              读命令，不修改 key space
  *
  * use-memory:  May increase memory usage once called. Don't allow if out
  *              of memory.
+ *              可能会占用大量内存的命令，调用时对内存占用进行检查
  *
  * admin:       Administrative command, like SAVE or SHUTDOWN.
+ *              管理用途的命令，比如 SAVE 和 SHUTDOWN
  *
  * pub-sub:     Pub/Sub related command.
+ *              发布/订阅相关的命令
  *
  * no-script:   Command not allowed in scripts.
+ *              不允许在脚本中使用的命令
  *
  * random:      Random command. Command is not deterministic, that is, the same
  *              command with the same arguments, with the same key space, may
  *              have different results. For instance SPOP and RANDOMKEY are
  *              two random commands.
+ *              随机命令
+ *              命令是非确定性的：对于同样的命令，同样的参数，同样的键，结果可能不同。比如 SPOP 和 RANDOMKEY 就是这样的例子。
  *
  * to-sort:     Sort command output array if called from script, so that the
  *              output is deterministic. When this flag is used (not always
  *              possible), then the "random" flag is not needed.
+ *              如果命令在 Lua 脚本中执行，那么对输出进行排序，从而得出确定性的输出。
  *
  * ok-loading:  Allow the command while loading the database.
+ *              允许在载入数据库时使用的命令。
  *
  * ok-stale:    Allow the command while a slave has stale data but is not
  *              allowed to serve this data. Normally no command is accepted
  *              in this condition but just a few.
+ *              允许在附属节点带有过期数据时执行的命令。这类命令很少有，只有几个。
  *
  * no-monitor:  Do not automatically propagate the command on MONITOR.
+ *               不要在 MONITOR 模式下自动广播的命令。
  *
  * no-slowlog:  Do not automatically propagate the command to the slowlog.
+ *               不要在 slowlog 模式下自动广播的命令。
  *
  * cluster-asking: Perform an implicit ASKING for this command, so the
  *              command will be accepted in cluster mode if the slot is marked
  *              as 'importing'.
+ *              对该命令执行隐式的ask，因此如果槽被标记为'importing'，该命令将在集群模式下被接受。
  *
  * fast:        Fast command: O(1) or O(log(N)) command that should never
  *              delay its execution as long as the kernel scheduler is giving
  *              us time. Note that commands that may trigger a DEL as a side
  *              effect (like SET) are not fast commands.
+ *              快速命令:O(1)或O(log(N))命令，只要内核调度器给我们时间，就不应该延迟它的执行。请注意，可能触发DEL作为副作用的命令(如SET)不是快速命令。
+ *
  * 
  * may-replicate: Command may produce replication traffic, but should be 
  *                allowed under circumstances where write commands are disallowed. 
@@ -170,9 +207,11 @@ struct redisServer server; /* Server global state */
  *                EVAL, which may execute write commands, which are replicated, 
  *                or may just execute read commands. A command can not be marked 
  *                both "write" and "may-replicate"
+ *                命令可能产生复制流量，但是在不允许写命令的情况下应该被允许。示例包括PUBLISH，它复制pubsub消息，以及EVAL，它可以执行复制的写命令，或者可能只执行读命令。命令不能同时标记为“write”和“may- replication”
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
+ * 以下附加标志仅用于将命令放入特定ACL类别中。命令可以包含多个ACL分类。
  *
  * @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
  * @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
