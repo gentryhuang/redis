@@ -277,6 +277,7 @@ void setCommand(client *c) {
     // 尝试对值对象进行编码
     c->argv[2] = tryObjectEncoding(c->argv[2]);
 
+    // 执行 set 通用命令方法
     setGenericCommand(c, flags, c->argv[1], c->argv[2], expire, unit, NULL, NULL);
 }
 
