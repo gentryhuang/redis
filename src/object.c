@@ -139,7 +139,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 /**
  * 如果小于 OBJ_ENCODING_EMBSTR_SIZE_LIMIT ，则创建一个 EMBSTR 编码的字符串对象，否则使用 RAW 编码。
- * 说明：选择 OBJ_ENCODING_EMBSTR_SIZE_LIMIT 的限制是为了让我们分配给 EMBSTR 的最大字符串对象仍然可以容纳 64 字节（使用 jemalloc 分配内存）。
+ * 说明：选择 OBJ_ENCODING_EMBSTR_SIZE_LIMIT 的限制是为了让我们分配给 EMBSTR 的最大字符串对象仍然可以容纳 64 字节（使用 EMBSTR 编码使用的 sdshdr 为 sdshdr8，jemalloc 分配内存为 64字节）。
  * 解释如下：
  * redis 3.2及其以后的版本sds会根据实际使用的buf长度，采用不同的sds对象表示，这里只说下小于等64字节的sds对象结构：
      - len：表示buf的使用长度，1字节。
