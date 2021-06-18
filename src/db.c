@@ -690,12 +690,20 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This command implements DEL and LAZYDEL. */
+/* This command implements DEL and LAZYDEL.
+ *
+ * 该命令实现 DEL 和 LAZYDEL
+ *
+ * lazy:  是否要异步删除，1 -> 异步删除
+ */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
+    // 遍历所有输入的 key （支持一次删除多个key）
     for (j = 1; j < c->argc; j++) {
+        // 优先删除过期的 key
         expireIfNeeded(c->db,c->argv[j]);
+
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
@@ -1554,9 +1562,12 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
+    /* 根据配置项 lazyfree-lazy-expire 选择同步删除还是异步删除*/
     if (server.lazyfree_lazy_expire) {
+        // 异步删除
         dbAsyncDelete(db,key);
     } else {
+        // 不同删除
         dbSyncDelete(db,key);
     }
     server.stat_expiredkeys++;
