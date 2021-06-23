@@ -529,21 +529,42 @@ void dictRelease(dict *d) {
     zfree(d);
 }
 
+/*
+ * 返回字典中包含 key 的节点。如果找到节点则返回；否则返回 NULL
+ *
+ * T = O(1)
+ */
 dictEntry *dictFind(dict *d, const void *key) {
     dictEntry *he;
     uint64_t h, idx, table;
 
+    // 字典（的哈希表）为空
     if (dictSize(d) == 0) return NULL; /* dict is empty */
+
+    // 如果字典正在 rehash，则进行单步 rehash
     if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    // 计算给定键的哈希值
     h = dictHashKey(d, key);
+
+    // 在字典的哈希表中查找这个键； T = O(1)
+    // 注意，可能字典的两个哈希表都会遍历
     for (table = 0; table <= 1; table++) {
+
+        // 计算索引值
         idx = h & d->ht[table].sizemask;
+
+        // 遍历给定索引上的链表，查找 key
         he = d->ht[table].table[idx];
         while (he) {
+            // 比较两个键
             if (key == he->key || dictCompareKeys(d, key, he->key))
                 return he;
             he = he->next;
         }
+
+        // 走到这里说明当前哈希表中没有找到指定的键的节点
+        // 如果程序是遍历完 0 号 哈希表，那么会进一步检查字典是否在进行 rehash，如果是在进行 rehash ，那么会尝试继续从 1 号哈希表中查找；否则直接返回 NULL
         if (!dictIsRehashing(d)) return NULL;
     }
     return NULL;

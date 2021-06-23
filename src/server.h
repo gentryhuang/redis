@@ -1365,37 +1365,58 @@ struct redisServer {
     int set_proc_title;             /* True if change proc title */
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
-    /* AOF persistence */
+
+    /************** AOF persistence  AOF 持久化 ***************/
+    // AOF 配置
     int aof_enabled;                /* AOF configuration */
+    // AOF 状态（开启、关闭、可写）
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
+    // AOF 刷盘策略（总是/每秒/从不）
     int aof_fsync;                  /* Kind of fsync() policy */
+    // AOF 文件名
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
+
+    // 最后一次执行 BGREWRITEAOF 时，AOF 文件的大小
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
+    // AOF 文件的当前字节大小
     off_t aof_current_size;         /* AOF current size. */
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
+
+    // AOF 重写缓存链表，链接着多个缓存模块
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
+    // AOF 缓冲区
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
+    // AOF 文件的描述符
     int aof_fd;       /* File descriptor of currently selected AOF file */
+    // AOF 当前目标数据库
     int aof_selected_db; /* Currently selected DB in AOF */
+    // 推迟 write 操作的时间
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
+    // 最后一次执行 fsync 的时间
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
+    // AOF 重写的开始时间
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
+    // 最后一次执行 BGREWRITEAOF 的结果
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
+    // 记录 AOF 的 write 操作被推迟了多少次
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
+    // 指示是否需要每写入一定量的数据，就主动执行一次 fsync()
     int aof_rewrite_incremental_fsync;/* fsync incrementally while aof rewriting? */
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
+    // 最后写入的状态
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
+
     /* AOF pipes used to communicate between parent and child during rewrite. */
     int aof_pipe_write_data_to_child;
     int aof_pipe_read_data_from_parent;
@@ -1406,7 +1427,11 @@ struct redisServer {
     int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
-    /* RDB persistence */
+
+
+
+
+    /***************************** RDB persistence RDB 持久化 ********************/
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     struct saveparam *saveparams;   /* Save points array for RDB */
@@ -1615,12 +1640,14 @@ struct redisServer {
     int lua_kill;         /* Kill the script if true. */
     int lua_always_replicate_commands; /* Default replication type. */
     int lua_oom;          /* OOM detected when script start? */
+
     /* Lazy free */
-    int lazyfree_lazy_eviction;
-    int lazyfree_lazy_expire;
-    int lazyfree_lazy_server_del;
-    int lazyfree_lazy_user_del;
-    int lazyfree_lazy_user_flush;
+    int lazyfree_lazy_eviction; /* 内存淘汰配置项 */
+    int lazyfree_lazy_expire; /* key 过期删除配置项 */
+    int lazyfree_lazy_server_del; /* Redis 内部操作配置项，如 rname */
+    int lazyfree_lazy_user_del; /* DEL命令的默认行为配置项，使其与UNLINK完全一样  */
+    int lazyfree_lazy_user_flush; /* FLUSHDB、FLUSHALL和SCRIPT FLUSH同时支持异步和同步删除，当没有传递[SYNC|ASYNC]标志来控制。此配置项用于确定数据是否应该异步删除。 */
+
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;

@@ -198,49 +198,65 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     return s;
 }
 
-/**
+/*
  * 给定初始化字符串 init 和字符串长度 initlen 创建一个新的 SDS。不尝试 malloc
- * @param init
- * @param initlen
- * @return
+ *
+ * @param init 初始化字符串指针
+ * @param initlen 初始化字符串的长度
+ * @return 创建成功返回 sdshdr 相应的 sds，否则返回 NULL
+ *
  */
 sds sdsnewlen(const void *init, size_t initlen) {
     return _sdsnewlen(init, initlen, 0);
 }
 
-/**
+/*
  * 给定初始化字符串 init 和字符串长度 initlen 创建一个新的 SDS。并尝试 malloc
- * @param init
- * @param initlen
- * @return
+ *
+ * @param init 初始化字符串指针
+ * @param initlen 初始化字符串的长度
+ * @return 创建成功返回 sdshdr 相应的 sds，否则返回 NULL
  */
 sds sdstrynewlen(const void *init, size_t initlen) {
     return _sdsnewlen(init, initlen, 1);
 }
 
 /* Create an empty (zero length) sds string. Even in this case the string
- * always has an implicit null term. */
-// 创建并返回一个只保存空字符串的 SDS
+ * always has an implicit null term.
+ *
+ * 创建并返回一个只保存空字符串的 SDS
+ *
+ * 返回值：创建成功返回 sdshdr 相对应的 sds，创建失败返回 NULL
+ */
 sds sdsempty(void) {
     return sdsnewlen("", 0);
 }
 
 /* Create a new sds string starting from a null terminated C string. */
-// 根据给定字符串 init ，创建一个包含同样字符串的 sds
+/*
+ * 根据给定的字符串 init ，创建一个包含同样字符串的 sds
+ *
+ * @param init 如果为 NULL，则创建一个空白的 sds,否则，新创建的 sds 中包含和 init 内容相同字符串
+ * @return  创建成功返回 sdshdr 相对应的 sds, 创建失败返回 NULL
+ */
 sds sdsnew(const char *init) {
     size_t initlen = (init == NULL) ? 0 : strlen(init);
     return sdsnewlen(init, initlen);
 }
 
 /* Duplicate an sds string. */
+/*
+ * 复制给定 sds 的副本
+ *
+ * @param s 给定的 sds
+ * @return 创建成功返回输入 sds 的副本, 创建失败返回 NULL
+ */
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
 
-/**
+/*
  * 释放给定的 SDS
- *
- * T = O(N)
  *
  * @param s
  */
@@ -250,20 +266,7 @@ void sdsfree(sds s) {
     s_free((char *) s - sdsHdrSize(s[-1]));
 }
 
-/* Set the sds string length to the length as obtained with strlen(), so
- * considering as content only up to the first null term character.
- *
- * This function is useful when the sds string is hacked manually in some
- * way, like in the following example:
- *
- * s = sdsnew("foobar");
- * s[2] = '\0';
- * sdsupdatelen(s);
- * printf("%d\n", sdslen(s));
- *
- * The output will be "2", but if we comment out the call to sdsupdatelen()
- * the output will be "6" as the string was modified but the logical length
- * remains 6 bytes. */
+// 未使用，可能已废弃
 void sdsupdatelen(sds s) {
     size_t reallen = strlen(s);
     sdssetlen(s, reallen);
@@ -273,6 +276,11 @@ void sdsupdatelen(sds s) {
  * However all the existing buffer is not discarded but set as free space
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
+/*
+ * 在不释放 SDS 的字符串空间的情况下，重置 SDS 所保存的字符串为空字符串
+ *
+ * @param s
+ */
 void sdsclear(sds s) {
     sdssetlen(s, 0);
     s[0] = '\0';
@@ -284,8 +292,18 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
+/*
+ * 对 SDS 中 buf 的长度进行扩展，确保在函数执行之后，buf 至少会有 addlen + 1 长度的空余空间。
+ * （额外的 1 字节是为 \0 准备的）
+ *
+ * @param s
+ * @param addlen
+ * @return
+ */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     void *sh, *newsh;
+
+    // 获取 s 目前可用的空间长度
     size_t avail = sdsavail(s);
     size_t len, newlen;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -293,10 +311,14 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     size_t usable;
 
     /* Return ASAP if there is enough space left. */
+    // s 目前的空余空间已经足够，无须再进行扩展，直接返回
     if (avail >= addlen) return s;
 
+    // 获取 s 目前已占用空间的长度
     len = sdslen(s);
     sh = (char *) s - sdsHdrSize(oldtype);
+
+    //
     newlen = (len + addlen);
     assert(newlen > len);   /* Catch size_t overflow */
     if (newlen < SDS_MAX_PREALLOC)

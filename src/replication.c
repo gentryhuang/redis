@@ -212,7 +212,11 @@ int canFeedReplicaReplBuffer(client *replica) {
  * as well. This function is used if the instance is a master: we use
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
- * we use replicationFeedSlavesFromMasterStream() */
+ * we use replicationFeedSlavesFromMasterStream()
+ *
+ * 将写命令传播到从节点，并填充复制积压缓冲区。如果实例是从属节点，并且附加了子从属节点，我们使用replicationFeedSlavesFromMasterStream()
+ *
+ */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
@@ -224,16 +228,19 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
      * propagate *identical* replication stream. In this way this slave can
      * advertise the same replication ID as the master (since it shares the
      * master replication history and has the same backlog and offsets). */
+    // 非主节点，直接返回
     if (server.masterhost != NULL) return;
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
+    // backlog 为空，且没有从服务器，直接返回
     if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
 
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
     /* Send SELECT command to every slave if needed. */
+    // 如果有需要的话，发送 SELECT 命令指定数据库
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
 
@@ -251,9 +258,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         /* Add the SELECT command into the backlog. */
+        // 将 SELECT 命令添加到 backlog
         if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
+        // 发送给所有从节点
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
@@ -268,6 +277,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
+    // 将命令写入到backlog
     if (server.repl_backlog) {
         char aux[LONG_STR_SIZE+3];
 
@@ -284,6 +294,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             /* We need to feed the buffer with the object as a bulk reply
              * not just as a plain string, so create the $..CRLF payload len
              * and add the final CRLF */
+            // 将参数从对象转换成协议格式
             aux[0] = '$';
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
@@ -297,6 +308,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* Write the command to every slave. */
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
+
+        // 指向从服务器
         client *slave = ln->value;
 
         if (!canFeedReplicaReplBuffer(slave)) continue;
@@ -304,6 +317,9 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         /* Feed slaves that are waiting for the initial SYNC (so these commands
          * are queued in the output buffer until the initial SYNC completes),
          * or are already in sync with the master. */
+        /*
+         * 向已经接收完和正在接收 RDB 文件的从服务器发送命令，如果从服务器正在接收主服务器发送的 RDB 文件，那么在初次 SYNC 完成之前，主服务器发送的内容会被放进一个缓冲区里面
+         */
 
         /* Add the multi bulk length. */
         addReplyArrayLen(slave,argc);
@@ -1546,6 +1562,8 @@ void readSyncBulkPayload(connection *conn) {
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
     dbBackup *diskless_load_backup = NULL;
+
+    // 根据 slave-lazy-flush 选择是否异步
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;

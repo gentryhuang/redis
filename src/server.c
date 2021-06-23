@@ -1884,10 +1884,16 @@ void clientsCron(void) {
 
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
- * rehashing. */
+ * rehashing.
+ *
+ * 这个函数处理 "后台" 操作，如： 过期键删除、调整大小、rehash
+ */
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
-     * as master will synthesize DELs for us. */
+     * as master will synthesize DELs for us.
+     *
+     * 通过随机抽样过期 key , 不需要为从节点执行这样的操作，因为主节点会为我们合成 DELS
+     */
     if (server.active_expire_enabled) {
         if (iAmMaster()) {
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
@@ -3616,10 +3622,12 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
+ * 将指定的命令传播到 AOF 和 从节点
+ *
  * flags are an xor between:
- * + PROPAGATE_NONE (no propagation of command at all)
- * + PROPAGATE_AOF (propagate into the AOF file if is enabled)
- * + PROPAGATE_REPL (propagate into the replication link)
+ * + PROPAGATE_NONE (no propagation of command at all) // 没有传播命令
+ * + PROPAGATE_AOF (propagate into the AOF file if is enabled) // 如果启用，传播到 AOF 文件
+ * + PROPAGATE_REPL (propagate into the replication link) // 传播到从节点
  *
  * This should not be used inside commands implementation since it will not
  * wrap the resulting commands in MULTI/EXEC. Use instead alsoPropagate(),
@@ -3646,8 +3654,11 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
      * client pause, otherwise data may be lossed during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
+    // 将命令追加到 AOF 文件中
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd, dbid, argv, argc);
+
+    // 将命令传播到从节点
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves, dbid, argv, argc);
 }

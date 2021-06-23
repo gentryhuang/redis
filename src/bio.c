@@ -61,10 +61,13 @@
 #include "server.h"
 #include "bio.h"
 
-static pthread_t bio_threads[BIO_NUM_OPS];
+/* 工作线程，互斥和条件变量 */
+static pthread_t bio_threads[BIO_NUM_OPS]; // 后台线程数组
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
 static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];
 static pthread_cond_t bio_step_cond[BIO_NUM_OPS];
+
+/*存放工作的队列*/
 static list *bio_jobs[BIO_NUM_OPS];
 /* The following array is used to hold the number of pending jobs for every
  * OP type. This allows us to export the bioPendingJobsOfType() API that is
@@ -72,56 +75,88 @@ static list *bio_jobs[BIO_NUM_OPS];
  * objects shared with the background thread. The main thread will just wait
  * that there are no longer jobs of this type to be executed before performing
  * the sensible operation. This data is also useful for reporting. */
+/* 记录每种类型 job 队列中有多少 job 等待执行 */
 static unsigned long long bio_pending[BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
- * file as the API does not expose the internals at all. */
+ * file as the API does not expose the internals at all.
+ *
+ * 表示后台任务的数据结构。该结构只由 API 使用，不会被暴露给外部。
+ */
 struct bio_job {
+    // 任务创建的时间
     time_t time; /* Time at which the job was created. */
+
     /* Job specific arguments.*/
+
+    // 任务指针
     int fd; /* Fd for file based background jobs */
+
+    // 释放所提供参数的函数
     lazy_free_fn *free_fn; /* Function that will free the provided arguments */
+
+    // 参数列表
     void *free_args[]; /* List of arguments to be passed to the free function */
 };
 
 void *bioProcessBackgroundJobs(void *arg);
 
 /* Make sure we have enough stack to perform all the things we do in the
- * main thread. */
+ * main thread.
+ *
+ * 子线程栈大小
+ */
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
-/* Initialize the background system, spawning the thread. */
+/* Initialize the background system, spawning the thread.
+ *
+ * 初始化后台任务系统，生成线程
+ */
 void bioInit(void) {
     pthread_attr_t attr;
     pthread_t thread;
     size_t stacksize;
     int j;
 
-    /* Initialization of state vars and objects */
+    /* Initialization of state vars and objects
+     *
+     * 初始化 job 队列，以及线程状态
+     */
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        pthread_mutex_init(&bio_mutex[j],NULL);
-        pthread_cond_init(&bio_newjob_cond[j],NULL);
-        pthread_cond_init(&bio_step_cond[j],NULL);
+        pthread_mutex_init(&bio_mutex[j], NULL);
+        pthread_cond_init(&bio_newjob_cond[j], NULL);
+        pthread_cond_init(&bio_step_cond[j], NULL);
+
+        // 初始化对应类型的后台任务队列（列表）
         bio_jobs[j] = listCreate();
         bio_pending[j] = 0;
     }
 
-    /* Set the stack size as by default it may be small in some system */
+    /* Set the stack size as by default it may be small in some system
+     *
+     * 设置栈大小
+     */
     pthread_attr_init(&attr);
-    pthread_attr_getstacksize(&attr,&stacksize);
+    pthread_attr_getstacksize(&attr, &stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
     pthread_attr_setstacksize(&attr, stacksize);
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
-     * responsible of. */
+     * responsible of.
+     *
+     * 创建线程
+     */
     for (j = 0; j < BIO_NUM_OPS; j++) {
-        void *arg = (void*)(unsigned long) j;
-        if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
-            serverLog(LL_WARNING,"Fatal: Can't initialize Background Jobs.");
+        void *arg = (void *) (unsigned long) j;
+        // 调用 pthread_create 函数创建线程
+        if (pthread_create(&thread, &attr, bioProcessBackgroundJobs, arg) != 0) {
+            serverLog(LL_WARNING, "Fatal: Can't initialize Background Jobs.");
             exit(1);
         }
+
+        // 将创建的线程放到 bio_threads 数组中
         bio_threads[j] = thread;
     }
 }
@@ -129,8 +164,13 @@ void bioInit(void) {
 void bioSubmitJob(int type, struct bio_job *job) {
     job->time = time(NULL);
     pthread_mutex_lock(&bio_mutex[type]);
-    listAddNodeTail(bio_jobs[type],job);
+
+    // 将新任务加入到对应类型的队列中
+    listAddNodeTail(bio_jobs[type], job);
+
+    // 记录当前类型队列中待执行的任务数
     bio_pending[type]++;
+
     pthread_cond_signal(&bio_newjob_cond[type]);
     pthread_mutex_unlock(&bio_mutex[type]);
 }
@@ -157,6 +197,9 @@ void bioCreateCloseJob(int fd) {
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
 
+/*
+ * 创建 AOF异步刷盘任务 并加入到对应的任务队列中
+ */
 void bioCreateFsyncJob(int fd) {
     struct bio_job *job = zmalloc(sizeof(*job));
     job->fd = fd;
@@ -172,20 +215,21 @@ void *bioProcessBackgroundJobs(void *arg) {
     /* Check that the type is within the right interval. */
     if (type >= BIO_NUM_OPS) {
         serverLog(LL_WARNING,
-            "Warning: bio thread started with wrong type %lu",type);
+                  "Warning: bio thread started with wrong type %lu", type);
         return NULL;
     }
 
     switch (type) {
-    case BIO_CLOSE_FILE:
-        redis_set_thread_title("bio_close_file");
-        break;
-    case BIO_AOF_FSYNC:
-        redis_set_thread_title("bio_aof_fsync");
-        break;
-    case BIO_LAZY_FREE:
-        redis_set_thread_title("bio_lazy_free");
-        break;
+        case BIO_CLOSE_FILE:
+            redis_set_thread_title("bio_close_file");
+            break;
+        case BIO_AOF_FSYNC:
+            redis_set_thread_title("bio_aof_fsync");
+            break;
+
+        case BIO_LAZY_FREE:
+            redis_set_thread_title("bio_lazy_free");
+            break;
     }
 
     redisSetCpuAffinity(server.bio_cpulist);
@@ -199,14 +243,14 @@ void *bioProcessBackgroundJobs(void *arg) {
     sigaddset(&sigset, SIGALRM);
     if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
         serverLog(LL_WARNING,
-            "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
+                  "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
 
-    while(1) {
+    while (1) {
         listNode *ln;
 
         /* The loop always starts with the lock hold. */
         if (listLength(bio_jobs[type]) == 0) {
-            pthread_cond_wait(&bio_newjob_cond[type],&bio_mutex[type]);
+            pthread_cond_wait(&bio_newjob_cond[type], &bio_mutex[type]);
             continue;
         }
         /* Pop the job from the queue. */
@@ -224,18 +268,17 @@ void *bioProcessBackgroundJobs(void *arg) {
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
             if (redis_fsync(job->fd) == -1 &&
-                errno != EBADF && errno != EINVAL)
-            {
+                errno != EBADF && errno != EINVAL) {
                 int last_status;
-                atomicGet(server.aof_bio_fsync_status,last_status);
-                atomicSet(server.aof_bio_fsync_status,C_ERR);
-                atomicSet(server.aof_bio_fsync_errno,errno);
+                atomicGet(server.aof_bio_fsync_status, last_status);
+                atomicSet(server.aof_bio_fsync_status, C_ERR);
+                atomicSet(server.aof_bio_fsync_errno, errno);
                 if (last_status == C_OK) {
                     serverLog(LL_WARNING,
-                        "Fail to fsync the AOF file: %s",strerror(errno));
+                              "Fail to fsync the AOF file: %s", strerror(errno));
                 }
             } else {
-                atomicSet(server.aof_bio_fsync_status,C_OK);
+                atomicSet(server.aof_bio_fsync_status, C_OK);
             }
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);
@@ -247,7 +290,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
-        listDelNode(bio_jobs[type],ln);
+        listDelNode(bio_jobs[type], ln);
         bio_pending[type]--;
 
         /* Unblock threads blocked on bioWaitStepOfType() if any. */
@@ -279,7 +322,7 @@ unsigned long long bioWaitStepOfType(int type) {
     pthread_mutex_lock(&bio_mutex[type]);
     val = bio_pending[type];
     if (val != 0) {
-        pthread_cond_wait(&bio_step_cond[type],&bio_mutex[type]);
+        pthread_cond_wait(&bio_step_cond[type], &bio_mutex[type]);
         val = bio_pending[type];
     }
     pthread_mutex_unlock(&bio_mutex[type]);
@@ -296,13 +339,13 @@ void bioKillThreads(void) {
     for (j = 0; j < BIO_NUM_OPS; j++) {
         if (bio_threads[j] == pthread_self()) continue;
         if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
-            if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
+            if ((err = pthread_join(bio_threads[j], NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d can not be joined: %s",
-                        j, strerror(err));
+                          "Bio thread for job type #%d can not be joined: %s",
+                          j, strerror(err));
             } else {
                 serverLog(LL_WARNING,
-                    "Bio thread for job type #%d terminated",j);
+                          "Bio thread for job type #%d terminated", j);
             }
         }
     }

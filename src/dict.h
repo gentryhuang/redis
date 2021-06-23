@@ -205,19 +205,33 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
         (entry)->key = (_key_); \
 } while(0)
 
+// 比较两个键
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
         (d)->type->keyCompare((d)->privdata, key1, key2) : \
         (key1) == (key2))
 
+// 计算给定键的哈希值
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
+
+// 返回获取给定节点的键
 #define dictGetKey(he) ((he)->key)
+
+// 返回给定节点的值
 #define dictGetVal(he) ((he)->v.val)
+
+// 返回给定节点的有符合整数值
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
+
+// 返回给定字典的大小
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
+
+// 返回字典中节点数量
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
+
+// 查看字典是否正在 rehash
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) (d)->pauserehash++
 #define dictResumeRehashing(d) (d)->pauserehash--

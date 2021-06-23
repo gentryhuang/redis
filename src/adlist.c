@@ -111,26 +111,46 @@ list *listAddNodeHead(list *list, void *value)
 /* Add a new node to the list, to tail, containing the specified 'value'
  * pointer as value.
  *
+ * 将一个包含给定值指针 value 的新节点添加到链表的尾部
+ *
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
- * On success the 'list' pointer you pass to the function is returned. */
+ *
+ * 如果为新节点分配内存出错，那么不执行任何动作，仅返回 NULL
+ *
+ * On success the 'list' pointer you pass to the function is returned.
+ *
+ * 如果执行成功，返回传入的链表指针
+ *
+ * T = O(1)
+ */
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
 
+    // 为给定值指针 value 分配新节点内存
     if ((node = zmalloc(sizeof(*node))) == NULL)
         return NULL;
+
+    // 保存值指针
     node->value = value;
+
+    // 目标链表为空
     if (list->len == 0) {
         list->head = list->tail = node;
         node->prev = node->next = NULL;
+
+        // 目标链表非空
     } else {
         node->prev = list->tail;
         node->next = NULL;
         list->tail->next = node;
         list->tail = node;
     }
+
+    // 更新链表节点数
     list->len++;
+
     return list;
 }
 

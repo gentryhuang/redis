@@ -510,6 +510,9 @@ void freeStreamObject(robj *o) {
     freeStream(o->ptr);
 }
 
+/*
+ * 为对象的引用数增一
+ */
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
         o->refcount++;
@@ -687,7 +690,10 @@ robj *tryObjectEncoding(robj *o) {
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).
- * If the object is already raw-encoded just increment the ref count. */
+ * If the object is already raw-encoded just increment the ref count.
+ *
+ * 获取已编码对象的解码版本(作为新对象返回)。如果对象已经是原始编码（RAW 编码）的，只需增加ref计数。
+ */
 robj *getDecodedObject(robj *o) {
     robj *dec;
 
@@ -695,6 +701,8 @@ robj *getDecodedObject(robj *o) {
         incrRefCount(o);
         return o;
     }
+
+    // 解码对象，将对象的值从整数转换为字符串
     if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {
         char buf[32];
 

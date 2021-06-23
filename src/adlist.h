@@ -54,8 +54,16 @@ typedef struct list {
 } list;
 
 /* Functions implemented as macros */
+
+// 返回给定链表所包含的节点数量
+// T = O(1)
 #define listLength(l) ((l)->len)
+
+
 #define listFirst(l) ((l)->head)
+
+// 返回给定链表的表尾节点
+// T = O(1)
 #define listLast(l) ((l)->tail)
 #define listPrevNode(n) ((n)->prev)
 #define listNextNode(n) ((n)->next)
