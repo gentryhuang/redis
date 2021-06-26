@@ -52,7 +52,10 @@ robj *createObject(int type, void *ptr) {
     o->refcount = 1;
 
     /* Set the LRU to the current lruclock (minutes resolution), or
-     * alternatively the LFU counter. */
+     * alternatively the LFU counter.
+     *
+     * lru: 当内存淘汰策略是 LFU 时，该属性为 LFU 计数器。
+     */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
     } else {
@@ -525,7 +528,11 @@ void incrRefCount(robj *o) {
     }
 }
 
+/*
+ * 为对象的引用计数减一
+ */
 void decrRefCount(robj *o) {
+    // 释放对象
     if (o->refcount == 1) {
         switch (o->type) {
             case OBJ_STRING:
@@ -554,6 +561,8 @@ void decrRefCount(robj *o) {
                 break;
         }
         zfree(o);
+
+        // 减少计数
     } else {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
         if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;

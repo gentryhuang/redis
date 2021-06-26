@@ -67,6 +67,9 @@ typedef struct list {
 #define listLast(l) ((l)->tail)
 #define listPrevNode(n) ((n)->prev)
 #define listNextNode(n) ((n)->next)
+
+// 返回给定节点的值
+// T = O(1)
 #define listNodeValue(n) ((n)->value)
 
 #define listSetDupMethod(l,m) ((l)->dup = (m))

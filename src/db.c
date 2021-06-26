@@ -25,11 +25,27 @@ struct dbBackup {
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
+ *
+ * 当对象被访问时更新 LFU
+ *
  * Firstly, decrement the counter if the decrement time is reached.
- * Then logarithmically increment the counter, and update the access time. */
+ * Then logarithmically increment the counter, and update the access time.
+ *
+ * 首先，如果计数器达到递减时间，就递减计数器，没有达到就不操作。注意，有没有达到由两个因素决定：
+ *  - 距离上次访问时间的分钟数
+ *  - 衰减因子
+ *
+ * 然后对数地增加计数器，并更新访问时间。
+ *
+ */
 void updateLFU(robj *val) {
+    // 先尝试减访问次数
     unsigned long counter = LFUDecrAndReturn(val);
+
+    // 尝试增加访问次数
     counter = LFULogIncr(counter);
+
+    // 更新 lru 值，注意这里是 LFU 的情况，数据是两部分
     val->lru = (LFUGetTimeInMinutes() << 8) | counter;
 }
 

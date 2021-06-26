@@ -696,10 +696,15 @@ typedef struct redisObject {
     // 内部编码类型，代表当前对象底层采用哪种数据结构实现（数据类型的底层实现）
     unsigned encoding: 4;
 
-    // LRU 计时时钟，记录对象最后一次被访问的时间，用于辅助LRU算法删除键数据
+
+    // 1. 当该属性用于内存淘汰 LRU 算法时，作为计时时钟，即时间戳
+    // 2. 当该属性用于内存淘汰 LFU 算法时，作为数据。低 8 位表示该对象访问的次数，高 16 位表示访问的时间戳
     unsigned lru: LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
+                            * and most significant 16 bits access time).
+                            *
+                            * LRU时间(相对于全局lru_clock)或LFU数据(最低有效8位频率和最高有效16位访问时间)
+                            */
 
     // 引用计算器，记录当前对象被引用的次数，当该值为 0 时，可以安全回收当前对象空间。
     int refcount;
@@ -744,6 +749,7 @@ typedef struct redisDb {
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
+    // 正在被 WATCH 命令监视的键
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
@@ -756,16 +762,35 @@ typedef struct redisDb {
  * in cluster.h. */
 typedef struct dbBackup dbBackup;
 
-/* Client MULTI/EXEC state */
+/* Client MULTI/EXEC state 客户端 MULTI/EXEC 状态*/
+
+/*
+ * 保存了一个已入队命令的相关信息
+ */
 typedef struct multiCmd {
+    // 参数数组
     robj **argv;
+
+    // 参数数量
     int argc;
+
+    // 命令指针，指向具体的命令
     struct redisCommand *cmd;
 } multiCmd;
 
+/*
+ * 事务状态
+ *
+ * 事务状态主要包含一个事务队列，以及一个已入队命令的计数器
+ */
 typedef struct multiState {
+    // 事务队列，FIFO
+    // 是一个 multiCmd 类型的数组
     multiCmd *commands;     /* Array of MULTI commands */
+
+    // 已入队命令计数（事务队列的长度）
     int count;              /* Total number of MULTI commands */
+
     int cmd_flags;          /* The accumulated command flags OR-ed together.
                                So if at least a command has a given flag, it
                                will be set in this field. */
@@ -880,7 +905,10 @@ typedef struct {
 } user;
 
 /* With multiplexing we need to take per-client state.
- * Clients are taken in a linked list. */
+ * Clients are taken in a linked list.
+ * 使用 I/O 多路复用的缘故，我们需要为每个客户端维持一个状态。
+ * 多个客户端使用是一个链表连接起来。
+ */
 
 #define CLIENT_ID_AOF (UINT64_MAX) /* Reserved ID for the AOF client. If you
                                       need more reserved IDs use UINT64_MAX-1,
@@ -890,61 +918,138 @@ typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     connection *conn;
     int resp;               /* RESP protocol version. Can be 2 or 3. */
+
+    // 当前正在使用的数据库
     redisDb *db;            /* Pointer to currently SELECTed DB. */
+
+    // 客户端的名称
     robj *name;             /* As set by CLIENT SETNAME. */
+
+    // 查询缓冲区
     sds querybuf;           /* Buffer we use to accumulate client queries. */
+
     size_t qb_pos;          /* The position we have read in querybuf. */
     sds pending_querybuf;   /* If this client is flagged as master, this buffer
                                represents the yet not applied portion of the
                                replication stream that we are receiving from
                                the master. */
+
+    // 查询缓冲区长度峰值
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
+
+    // 参数数量
     int argc;               /* Num of arguments of current command. */
+
+    // 参数对象数组
     robj **argv;            /* Arguments of current command. */
     int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
+
+    // 记录被客户端执行的命令
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+
     user *user;             /* User associated with this connection. If the
                                user is set to NULL the connection can do
                                anything (admin). */
+
+    // 请求的类型：内联命令还是多条命令
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
+
+    // 剩余未读取的命令内容数量
     int multibulklen;       /* Number of multi bulk arguments left to read. */
+
+    // 命令内容的长度
     long bulklen;           /* Length of bulk argument in multi bulk request. */
+
+    // 回复链表
     list *reply;            /* List of reply objects to send to the client. */
+
+    // 回复链表中对象的总大小
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
+
+    // 已发送字节，处理 short write 用
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
+
+    // 创建客户端的时间
     time_t ctime;           /* Client creation time. */
+
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
+
+    // 客户端最后一次和服务交互的时间
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
+
+    // 客户端的输出缓冲区超过软性限制的时间
     time_t obuf_soft_limit_reached_time;
+
+    // 客户端的状态标志
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
+
+    // 当 server.requirepass 不为 NULL 时，代表认证的状态
+    // 0 代表未认证， 1 代表已认证
     int authenticated;      /* Needed when the default user requires auth. */
+
+    // 复制状态
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on first ACK. */
+
+    // 用于保存主服务器传来的 RDB 文件的文件描述符
     int repldbfd;           /* Replication DB file descriptor. */
+
+    // 读取主服务器传来的 RDB 文件的偏移量
     off_t repldboff;        /* Replication DB file offset. */
+
+    // 主服务器传来的 RDB 文件的大小
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
     long long read_reploff; /* Read replication offset if this is a master. */
+
+    // 主服务器的复制偏移量
     long long reploff;      /* Applied replication offset if this is a master. */
+
+    // 从服务器最后一次发送 REPLCONF ACK 时的偏移量
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
+
+    // 从服务器最后一次发送 REPLCONF ACK 的时间
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer
                                        should use. */
+
+    // 主服务器的 master run ID
+    // 保存在客户端，用于执行数据同步
     char replid[CONFIG_RUN_ID_SIZE + 1]; /* Master replication ID (if master). */
+
+    // 从服务器的监听端口号
     int slave_listening_port; /* As configured with: REPLCONF listening-port */
     char *slave_addr;       /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
+
+    // 事务状态
     multiState mstate;      /* MULTI/EXEC state */
+
+    // 阻塞类型
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
+
+    // 阻塞状态
     blockingState bpop;     /* blocking state */
+
+    // 最后被写入的全局复制偏移量
     long long woff;         /* Last write global replication offset. */
+
+    // 被监视的键
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
+
+    // 这个字典记录了客户端所有订阅的频道
+    // 键为频道名字，值为 NULL
+    // 也即是，一个频道的集合
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
+
+    // 链表，包含多个 pubsubPattern 结构
+    // 记录了所有订阅频道的客户端的信息
+    // 新 pubsubPattern 结构总是被添加到表尾
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
@@ -974,8 +1079,13 @@ typedef struct client {
      * before adding it the new value. */
     uint64_t client_cron_last_memory_usage;
     int client_cron_last_memory_type;
+
+
     /* Response buffer */
+    // 回复偏移量
     int bufpos;
+
+    // 回复缓冲区
     char buf[PROTO_REPLY_CHUNK_BYTES];
 } client;
 
@@ -1549,7 +1659,9 @@ struct redisServer {
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Precision of random sampling */
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
+    /* lfu 对数计数器因子：默认值是 10 */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
+    /* lfu 计数器衰减因子 ：默认值为 1*/
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_base;         /* Base oom_score_adj value, as observed on startup */
@@ -1701,20 +1813,42 @@ typedef void redisCommandProc(client *c);
 
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
+/*
+ * Redis 命令
+ */
 struct redisCommand {
+    // 命令名字
     char *name;
+
+    // 实现函数
     redisCommandProc *proc;
+
+    // 参数个数
     int arity;
+
+    // 字符串表示的 FLAG
     char *sflags;   /* Flags as string representation, one char per flag. */
+
+    // 实际 FLAG
     uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
+
+    // 从命令中判断命令的键参数。在 Redis 集群转向时使用。
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
+
+
     /* What keys should be loaded in background when calling this command? */
+    // 指定哪些参数是 key
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
+
+    // 统计信息
+    // microseconds: 记录了命令执行消耗的总毫微秒数
     long long microseconds, calls, rejected_calls, failed_calls;
+
+    // 命令 id
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
                    ACLs. A connection is able to execute a given command if
