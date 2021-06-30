@@ -189,15 +189,27 @@ typedef struct clusterState {
  * to the first node, using the getsockname() function. Then we'll use this
  * address for all the next messages. */
 typedef struct {
-    char nodename[CLUSTER_NAMELEN];
-    uint32_t ping_sent;
-    uint32_t pong_received;
-    char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
-    uint16_t port;              /* base port last time it was seen */
-    uint16_t cport;             /* cluster port last time it was seen */
-    uint16_t flags;             /* node->flags copy */
-    uint16_t pport;             /* plaintext-port, when base port is TLS */
-    uint16_t notused1;
+    // 节点的名称
+    char nodename[CLUSTER_NAMELEN]; // 40字节
+
+    // 最后一次向该节点发送 PING 消息的时间戳
+    uint32_t ping_sent; // 4 字节
+
+    // 最后一次从该节点接收到 PONG 消息的时间戳
+    uint32_t pong_received; // 4 字节
+
+    // 节点的 IP 地址
+    char ip[NET_IP_STR_LEN]; // 46 字节 /* IP address last time it was seen */
+
+    // 节点的端口号
+    uint16_t port;  // 2 字节            /* base port last time it was seen */
+    uint16_t cport;  // 2 字节           /* cluster port last time it was seen */
+
+    // 节点的标识
+    uint16_t flags;  // 2 字节           /* node->flags copy */
+
+    uint16_t pport;   // 2 字节          /* plaintext-port, when base port is TLS */
+    uint16_t notused1; // 2 字节
 } clusterMsgDataGossip;
 
 typedef struct {

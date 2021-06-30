@@ -1084,6 +1084,12 @@ void clientAcceptHandler(connection *conn) {
 
 #define MAX_ACCEPTS_PER_CALL 1000
 
+/**
+ *  TCP 连接 accept 处理器
+ * @param conn
+ * @param flags
+ * @param ip
+ */
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
@@ -1103,6 +1109,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * Admission control will happen before a client is created and connAccept()
      * called, because we don't want to even start transport-level negotiation
      * if rejected. */
+    // 如果新添加的客户端令服务器的最大客户端数量达到了，那么拒绝创建客户端
     if (listLength(server.clients) + getClusterConnectionsCount()
         >= server.maxclients) {
         char *err;
@@ -1124,6 +1131,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 
     /* Create connection and client */
+    // 创建客户端
     if ((c = createClient(conn)) == NULL) {
         serverLog(LL_WARNING,
                   "Error registering fd event for the new client: %s (conn: %s)",
@@ -1134,6 +1142,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 
     /* Last chance to keep flags */
+    // 设置客户端状态
     c->flags |= flags;
 
     /* Initiate accept.
@@ -1155,7 +1164,17 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
-// 创建一个 TCP 连接处理器
+/*
+ * 连接应答处理器
+ *
+ * 用于对连接服务器监听套接字的客户端进行应答。
+ *
+ * 当 Redis 服务器初始化时，程序会将这个连接应答处理器和服务器监听套接字的 AE_READABLE 事件关联起来，
+ * 当有客户端向服务器发起连接，那么服务器监听套接字就会产生 AE_READABLE 事件，触发连接应答处理器执行。
+ * 处理器会对客户端的连接请求进行应答，然后创建客户端套接字，以及客户端状态，并将客户端套接字的 AE_READABLE 事件
+ * 与命令请求处理器进行关联，使得客户端可以向主服务器发送命令请求
+ *
+ */
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
@@ -1164,16 +1183,20 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
 
     while (max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport); // accept 客户端连接
+        // accept 客户端连接
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                           "Accepting client connection: %s", server.neterr);
             return;
         }
+
         anetCloexec(cfd);
         serverLog(LL_VERBOSE, "Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd), 0, cip);  // 为客户端创建客户端状态（redisClient）
+
+        // 为客户端创建客户端状态（redisClient）
+        acceptCommonHandler(connCreateAcceptedSocket(cfd), 0, cip);
     }
 }
 
@@ -1543,34 +1566,53 @@ int writeToClient(client *c, int handler_installed) {
     size_t objlen;
     clientReplyBlock *o;
 
+    // 一直循环，直到回复缓冲区为空或者指定条件满足为止
     while (clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
+
+            // 写入内容到套接字
+            // c->sentlen 是用来处理 short write 的，当出现 short write ，导致写入未能一次完成时，
+            // c-buf+c->sentlen 就会偏移到正确（未写入）内容的位置上
             nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
+
+            // 出错则跳出
             if (nwritten <= 0) break;
+
+            // 成功写入则更新写入计数器变量
             c->sentlen += nwritten;
             totwritten += nwritten;
 
             /* If the buffer was sent, set bufpos to zero to continue with
              * the remainder of the reply. */
+            // 如果缓冲区中的内容已经全部写入完毕
+            // 那么清空客户端的两个计数器变量
             if ((int) c->sentlen == c->bufpos) {
                 c->bufpos = 0;
                 c->sentlen = 0;
             }
         } else {
+
+            // 取出位于链表最前面的对象
             o = listNodeValue(listFirst(c->reply));
             objlen = o->used;
 
+            // 略过空对象
             if (objlen == 0) {
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, listFirst(c->reply));
                 continue;
             }
 
+            // 写入内容到套接字
+            // c->sentlen 是用来处理 short write 的
+            // 当出现 short write ，导致写入未能一次完成时，
+            // c->buf+c->sentlen 就会偏移到正确（未写入）内容的位置上。
             nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
 
+            // 如果缓冲区内容全部写入完毕，那么删除已写入完毕的节点
             /* If we fully sent the object on head go to the next one */
             if (c->sentlen == objlen) {
                 c->reply_bytes -= o->size;
@@ -1588,12 +1630,24 @@ int writeToClient(client *c, int handler_installed) {
          * super fast link that is always able to accept data (in real world
          * scenario think about 'KEYS *' against the loopback interface).
          *
+         * 为了避免一个非常大的回复独占服务器，
+         * 当写入的总数量大于 REDIS_MAX_WRITE_PER_EVENT ，
+         * 临时中断写入，将处理时间让给其他客户端，
+         * 剩余的内容等下次写入就绪再继续写入
+         *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver.
          *
          * Moreover, we also send as much as possible if the client is
          * a slave or a monitor (otherwise, on high-speed traffic, the
-         * replication/output buffer will grow indefinitely) */
+         * replication/output buffer will grow indefinitely)
+         *
+         * 不过，如果服务器的内存占用已经超过了限制，
+         * 那么为了将回复缓冲区中的内容尽快写入给客户端，
+         * 然后释放回复缓冲区的空间来回收内存，
+         * 这时即使写入量超过了 REDIS_MAX_WRITE_PER_EVENT ，
+         * 程序也继续进行写入
+         */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory) &&
@@ -1601,6 +1655,8 @@ int writeToClient(client *c, int handler_installed) {
             break;
     }
     atomicIncr(server.stat_net_output_bytes, totwritten);
+
+    // 写入出错检查
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
@@ -1633,7 +1689,17 @@ int writeToClient(client *c, int handler_installed) {
     return C_OK;
 }
 
-/* Write event handler. Just send data to the client. */
+/* Write event handler. Just send data to the client.
+ *
+ * 命令回复处理器
+ *
+ * 负责将服务器执行命令后得到的结果通过套接字返回给客户端
+ *
+ * 当服务器有命令回复需要传送给客户端的时候，服务器会将客户端套接字的 AE_WRITEABLE 事件和命令回复处理器关联起来，
+ * 当客户端准备好接收服务器传回的结果时，就会产生 AE_WRITABLE 事件，引发命令回复处理器执行，并执行相应的套接字写入操作。
+ *
+ * 当命令回复发送完毕后，服务器就会解除命令回复处理器与客户端套接字的 AE_WRITEABLE 事件之间的关联
+ */
 void sendReplyToClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     writeToClient(c, 1);
@@ -2176,6 +2242,16 @@ void processInputBuffer(client *c) {
     }
 }
 
+/*
+ * Redis 命令处理器
+ *
+ * 命令处理器负责从套接字中读入客户端发送的命令请求内容。
+ *
+ * 当一个客户端通过连接应答处理器成功连接到服务器之后，服务器会将客户端套接字的AE_READABLE 事件和命令请求处理器关联起来，
+ * 当客户端向服务器发送命令请求的时候，套接字就会产生 AE_READABLE 事件，引发命令请求处理器执行，并执行相应的套接字读入操作。
+ *
+ * 在客户端连接服务器的整个过程中，服务器都会一直为客户端套接字的 AE_READABLE 事件关联命令请求处理器。
+ */
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, readlen;
@@ -2188,6 +2264,7 @@ void readQueryFromClient(connection *conn) {
     /* Update total number of reads on server */
     atomicIncr(server.stat_total_reads_processed, 1);
 
+    // 读入长度（默认为 16 MB）
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probability that the query
@@ -2204,10 +2281,21 @@ void readQueryFromClient(connection *conn) {
         if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
 
+    // 获取查询缓冲区当前内容的长度
+    // 如果读取出现 short read ，那么可能会有内容滞留在读取缓冲区里面
+    // 这些滞留内容也许不能完整构成一个符合协议的命令，
     qblen = sdslen(c->querybuf);
+
+    // 如果有需要，更新缓冲区内容长度的峰值（peak）
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+
+    // 为查询缓冲区分配空间
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+
+    // 读入内容到查询缓冲区
     nread = connRead(c->conn, c->querybuf + qblen, readlen);
+
+    // 读入出错
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
@@ -2216,6 +2304,8 @@ void readQueryFromClient(connection *conn) {
             freeClientAsync(c);
             return;
         }
+
+        // 遇到 EOF
     } else if (nread == 0) {
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClientAsync(c);

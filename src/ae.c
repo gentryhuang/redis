@@ -62,18 +62,28 @@
     #endif
 #endif
 
-
+/*
+ * 初始化事件处理器
+ */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
+    // 防止调用应用程序没有初始化
     monotonicInit();    /* just in case the calling app didn't initialize */
 
+    // 创建事件处理器
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
-    eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
-    eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
+
+    // 分别初始化文件事件结构、已就绪文件事件结构数组
+    eventLoop->events = zmalloc(sizeof(aeFileEvent) * setsize);
+    eventLoop->fired = zmalloc(sizeof(aeFiredEvent) * setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
+
+    // 设置数组大小
     eventLoop->setsize = setsize;
+
+    // 初始化时间事件结构
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
@@ -83,12 +93,17 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->flags = 0;
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
-     * vector with it. */
+     * vector with it.
+     *
+     * 初始化监听事件
+     */
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
+
+    // 返回事件处理器
     return eventLoop;
 
-err:
+    err:
     if (eventLoop) {
         zfree(eventLoop->events);
         zfree(eventLoop->fired);
@@ -97,7 +112,10 @@ err:
     return NULL;
 }
 
-/* Return the current set size. */
+/* Return the current set size.
+ *
+ * 返回当前事件槽大小
+ */
 int aeGetSetSize(aeEventLoop *eventLoop) {
     return eventLoop->setsize;
 }
@@ -111,30 +129,41 @@ void aeSetDontWait(aeEventLoop *eventLoop, int noWait) {
 }
 
 /* Resize the maximum set size of the event loop.
+ *
+ * 调整事件槽的大小
+ *
  * If the requested set size is smaller than the current set size, but
  * there is already a file descriptor in use that is >= the requested
  * set size minus one, AE_ERR is returned and the operation is not
  * performed at all.
  *
- * Otherwise AE_OK is returned and the operation is successful. */
+ * 如果尝试调整大小为 setsize, 但有 >= setsize 的文件描述符存在，那么返回 AE_ERR，不进行任何动作
+ *
+ * Otherwise AE_OK is returned and the operation is successful.
+ *
+ * 否则，执行大小调整操作，并返回 AE_OK
+ */
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     int i;
 
     if (setsize == eventLoop->setsize) return AE_OK;
     if (eventLoop->maxfd >= setsize) return AE_ERR;
-    if (aeApiResize(eventLoop,setsize) == -1) return AE_ERR;
+    if (aeApiResize(eventLoop, setsize) == -1) return AE_ERR;
 
-    eventLoop->events = zrealloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
-    eventLoop->fired = zrealloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
+    eventLoop->events = zrealloc(eventLoop->events, sizeof(aeFileEvent) * setsize);
+    eventLoop->fired = zrealloc(eventLoop->fired, sizeof(aeFiredEvent) * setsize);
     eventLoop->setsize = setsize;
 
     /* Make sure that if we created new slots, they are initialized with
      * an AE_NONE mask. */
-    for (i = eventLoop->maxfd+1; i < setsize; i++)
+    for (i = eventLoop->maxfd + 1; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return AE_OK;
 }
 
+/*
+ * 删除事件处理器状态
+ */
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
@@ -150,63 +179,120 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     zfree(eventLoop);
 }
 
+/*
+ * 停止事件处理器
+ */
 void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+
+/**
+ * 根据 mask 参数的值(文件事件类型)，监听 fd 对应的套接字的状态，并将事件和事件处理器关联。当套接字可用时，执行处理器。
+ *
+ * 即：
+ * 1 将给定套接字的给定事件注册到 I/O 多路复用程序。这样，当套接字发生事件时，I/O 多路复用程序就可以监听到。
+ * 2 将给定套接字的给定事件和事件处理器进行关联。
+ *
+ *
+ * 说明：套接字和套接字的事件是一起的
+ *
+ * @param eventLoop 事件处理器状态
+ * @param fd 套接字描述符
+ * @param mask 事件类型掩码
+ * @param proc 事件处理器
+ * @param clientData 多路复用库私有数据
+ * @return
+ */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData)
-{
+                      aeFileProc *proc, void *clientData) {
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
+
+    // 1 取出文件事件结构
     aeFileEvent *fe = &eventLoop->events[fd];
 
+    // 2 监听指定 fd(套接字) 的指定事件
+    // 特别说明：Redis 的 I/O 多路复用程序的所有功能都是通过包装常见的 select、epoll、evport 和 kqueue 这些 I/O 多路复用函数来实现的，
+    // 每个 I/O 多路复用函数库在 Redis 源码中都对应一个单独的文件，如： ae.select.c , ae_epoll.c ,ae_kqueue.c 等
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
+
+    // 3 设置文件事件类型，以及为（套接字的）事件关联处理器
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
+
+    // 私有数据
     fe->clientData = clientData;
+
+    // 如果有需要，更新事件处理器的最大值
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
+
     return AE_OK;
 }
 
-void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
-{
+/**
+ * 将套接字 fd 从 mask 指定的监听队列中删除
+ *
+ * @param eventLoop 事件处理器状态
+ * @param fd  套接字描述符
+ * @param mask 事件类型掩码
+ */
+void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (fd >= eventLoop->setsize) return;
+
+    // 1 取出文件事件结构
     aeFileEvent *fe = &eventLoop->events[fd];
+
+    // 未设置监听的事件类型，直接返回
     if (fe->mask == AE_NONE) return;
 
     /* We want to always remove AE_BARRIER if set when AE_WRITABLE
      * is removed. */
     if (mask & AE_WRITABLE) mask |= AE_BARRIER;
 
+    // 让 I/O 多路复用程序取消对给定 套接字 fd 的给定事件的监视
     aeApiDelEvent(eventLoop, fd, mask);
+
+    // 计算新掩码
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         /* Update the max fd */
         int j;
 
-        for (j = eventLoop->maxfd-1; j >= 0; j--)
+        for (j = eventLoop->maxfd - 1; j >= 0; j--)
             if (eventLoop->events[j].mask != AE_NONE) break;
         eventLoop->maxfd = j;
     }
 }
 
+/**
+ *
+ * @param eventLoop 事件处理器状态
+ * @param fd 套接字描述符
+ * @return
+ */
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
+
+    // 返回当前套接字正在被监听的事件类型
     aeFileEvent *fe = &eventLoop->events[fd];
 
+    // 事件类型掩码
+    // 如果套接字没有任何事件被监听，那么函数返回 AE_NONE
+    // 如果套接字的读事件正在被监听，那么函数返回 AE_READABLE
+    // 如果套接字的写事件正在被监听，那么函数返回 AE_WRITABLE
+    // 如果套接字的读事件和写事件正在被监视，那么函数返回 AE_READABLE|AE_WRITABLE
     return fe->mask;
 }
 
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
-        aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc)
-{
+                            aeTimeProc *proc, void *clientData,
+                            aeEventFinalizerProc *finalizerProc) {
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
@@ -226,10 +312,9 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     return id;
 }
 
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
-{
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id) {
     aeTimeEvent *te = eventLoop->timeEventHead;
-    while(te) {
+    while (te) {
         if (te->id == id) {
             te->id = AE_DELETED_EVENT_ID;
             return AE_OK;
@@ -270,9 +355,9 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     long long maxId;
 
     te = eventLoop->timeEventHead;
-    maxId = eventLoop->timeEventNextId-1;
+    maxId = eventLoop->timeEventNextId - 1;
     monotime now = getMonotonicUs();
-    while(te) {
+    while (te) {
         long long id;
 
         /* Remove events scheduled for deletion. */
@@ -364,8 +449,10 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * 函数的返回值为已处理事件的数量
  *
  * */
-int aeProcessEvents(aeEventLoop *eventLoop, int flags)
-{
+ /*
+  * 事件分配器
+  */
+int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
@@ -411,14 +498,20 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             eventLoop->beforesleep(eventLoop);
 
         /* Call the multiplexing API, will return only on timeout or when
-         * some event fires. */
+         * some event fires.
+         *
+         * 调用多路复用 API，只会在超时或某些事件触发时返回。即 等待事件产生
+         */
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
+        // 遍历所有已产生的事件
         for (j = 0; j < numevents; j++) {
+
+            // 从已就绪数组中获取事件
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
@@ -443,16 +536,18 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              *
              * Fire the readable event if the call sequence is not
              * inverted. */
+            // 调用读事件处理器处理读事件
             if (!invert && fe->mask & mask & AE_READABLE) {
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
                 fired++;
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
             }
 
             /* Fire the writable event. */
+            // 调用写事件处理器处理写事件
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
-                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fe->wfileProc(eventLoop, fd, fe->clientData, mask);
                     fired++;
                 }
             }
@@ -462,9 +557,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             if (invert) {
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
                 if ((fe->mask & mask & AE_READABLE) &&
-                    (!fired || fe->wfileProc != fe->rfileProc))
-                {
-                    fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                    (!fired || fe->wfileProc != fe->rfileProc)) {
+                    fe->rfileProc(eventLoop, fd, fe->clientData, mask);
                     fired++;
                 }
             }
@@ -481,7 +575,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 }
 
 /* Wait for milliseconds until the given file descriptor becomes
- * writable/readable/exception */
+ * writable/readable/exception
+ *
+ * 在给定毫秒内等待 fd 的给定类型事件产生，直到事件成功产生，或者等待超时
+ *
+ * @ fd  套接字描述符
+ * @ mask 事件类型
+ * @ 毫秒数
+ */
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
@@ -491,7 +592,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
+    if ((retval = poll(&pfd, 1, milliseconds)) == 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
         if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
@@ -508,22 +609,32 @@ int aeWait(int fd, int mask, long long milliseconds) {
  */
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
+
     while (!eventLoop->stop) {
         // 开始处理事件
-        aeProcessEvents(eventLoop, AE_ALL_EVENTS|
-                                   AE_CALL_BEFORE_SLEEP|
+        aeProcessEvents(eventLoop, AE_ALL_EVENTS |
+                                   AE_CALL_BEFORE_SLEEP |
                                    AE_CALL_AFTER_SLEEP);
     }
 }
 
+/*
+ * 返回所使用的多路复用库的名称
+ */
 char *aeGetApiName(void) {
     return aeApiName();
 }
 
+/*
+ * 设置处理事件前需要被执行的函数
+ */
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep) {
     eventLoop->beforesleep = beforesleep;
 }
 
+/*
+ * 设置处理事件后需要被执行的函数
+ */
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
 }

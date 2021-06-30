@@ -82,7 +82,7 @@ void queueMultiCommand(client *c) {
      * this is useful in case client sends these in a pipeline, or doesn't
      * bother to read previous responses and didn't notice the multi was already
      * aborted. */
-    // 客户端监视的 key 被其它客户端修改，则不再入队
+    // 命令入队时出错，则不允许入队
     if (c->flags & CLIENT_DIRTY_EXEC)
         return;
 

@@ -35,31 +35,49 @@
 
 #include "monotonic.h"
 
-#define AE_OK 0
-#define AE_ERR -1
+/*
+ * 事件执行状态
+ */
+#define AE_OK 0  // 成功
+#define AE_ERR -1 // 出错
 
-#define AE_NONE 0       /* No events registered. */
-#define AE_READABLE 1   /* Fire when descriptor is readable. */
-#define AE_WRITABLE 2   /* Fire when descriptor is writable. */
+/*
+ * 文件事件状态
+ */
+#define AE_NONE 0       /* No events registered. 没有事件注册*/
+#define AE_READABLE 1   /* Fire when descriptor is readable. 当套接字是可读时触发 */
+#define AE_WRITABLE 2   /* Fire when descriptor is writable. 当套接字是可写时触发*/
 #define AE_BARRIER 4    /* With WRITABLE, never fire the event if the
                            READABLE event already fired in the same event
                            loop iteration. Useful when you want to persist
                            things to disk before sending replies, and want
                            to do that in a group fashion. */
 
+
+
+// 文件事件
 #define AE_FILE_EVENTS (1<<0)
+// 时间事件
 #define AE_TIME_EVENTS (1<<1)
+// 文件事件或时间事件
 #define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
+// 不阻塞，也不进行等待
 #define AE_DONT_WAIT (1<<2)
+// 休眠之前回调
 #define AE_CALL_BEFORE_SLEEP (1<<3)
+// 修改之后回调
 #define AE_CALL_AFTER_SLEEP (1<<4)
 
+// 决定时间事件是否要持续执行的 flag
 #define AE_NOMORE -1
 #define AE_DELETED_EVENT_ID -1
 
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)
 
+/*
+ * 事件处理器
+ */
 struct aeEventLoop;
 
 /* Types and data structures */
@@ -68,45 +86,103 @@ typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *client
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
-/* File event structure */
+/* File event structure
+ *
+ * 文件事件结构
+ */
 typedef struct aeFileEvent {
+    // 事件类型掩码
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
+
+    // 读事件处理器器（函数）
     aeFileProc *rfileProc;
+
+    // 写事件处理器（函数）
     aeFileProc *wfileProc;
+
+    // 多路复用库的私有数据
     void *clientData;
 } aeFileEvent;
 
-/* Time event structure */
+/* Time event structure
+ *
+ * 时间事件结构
+ */
 typedef struct aeTimeEvent {
+    // 时间时间的唯一标志
     long long id; /* time event identifier. */
+
+    // 事件的到达时间
     monotime when;
+
+    // 事件处理函数
     aeTimeProc *timeProc;
+
+    // 事件释放函数
     aeEventFinalizerProc *finalizerProc;
+
+    // 多路复用库的私有数据
     void *clientData;
+
+    // 指向上一个时间事件结构
     struct aeTimeEvent *prev;
+
+    // 指向下一个时间事件结构
     struct aeTimeEvent *next;
+
+
     int refcount; /* refcount to prevent timer events from being
   		   * freed in recursive time event calls. */
 } aeTimeEvent;
 
-/* A fired event */
+/* A fired event
+ *
+ * 已就绪事件
+ */
 typedef struct aeFiredEvent {
+    // 已就绪文件描述符
     int fd;
-    int mask;
+
+    // 事件类型掩码
+    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
 } aeFiredEvent;
 
-/* State of an event based program */
+/* State of an event based program
+ *
+ * 事件处理器状态结构
+ */
 typedef struct aeEventLoop {
+    // 目前已注册的最大描述符
     int maxfd;   /* highest file descriptor currently registered */
+
+    // 目前已追踪的最大描述符
     int setsize; /* max number of file descriptors tracked */
+
+    // 用于生成时间事件 id
     long long timeEventNextId;
+
+    // 已注册的文件事件
     aeFileEvent *events; /* Registered events */
+
+    // 已就绪的文件事件
     aeFiredEvent *fired; /* Fired events */
+
+    // 时间事件
     aeTimeEvent *timeEventHead;
+
+    // 事件处理器的开关， 1 -> 停止事件处理器
     int stop;
+
+    // 多路复用库的私有数据
     void *apidata; /* This is used for polling API specific data */
+
+    // 在处理事件前要执行的函数
     aeBeforeSleepProc *beforesleep;
+
+    // 在处理事件后要执行的函数
     aeBeforeSleepProc *aftersleep;
+
+
     int flags;
 } aeEventLoop;
 
