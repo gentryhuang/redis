@@ -101,14 +101,14 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * keys that can be removed from the keyspace.
  *
  * 尝试删除数据库中一些过期 key。使用的算法是自适应的：
- * 如果有很少的过期键，函数运行的比较保守，使用较少的 CPU 周期。
- * 如果有大量的过期键，函数会以更加积极的方式来删除过期键。
+ * 1 如果有很少的过期键，函数运行的比较保守，使用较少的 CPU 周期。
+ * 2 如果有大量的过期键，函数会以更加积极的方式来删除过期键。
  *
  * Every expire cycle tests multiple databases: the next call will start
  * again from the next db. No more than CRON_DBS_PER_CALL databases are
  * tested at every iteration.
  *
- * 每次循环中被测试的数据库数目不超过  CRON_DBS_PER_CALL
+ * 每次循环中被测试的数据库数目不超过  CRON_DBS_PER_CALL 16
  *
  * The function can perform more or less work, depending on the "type"
  * argument. It can execute a "fast cycle" or a "slow cycle". The slow
@@ -122,6 +122,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * at every event loop cycle, in the beforeSleep() function. The fast cycle
  * will try to perform less work, but will do it much more often.
  *
+ * - 重要：
  * 然而，慢周期可能会超时退出，因为它使用了太多的时间。因此，在beforeSleep()函数中，在每个事件循环周期中调用该函数来执行一个快速循环。快速循环将尝试执行更少的工作，但会做得更频繁。
  *
  * The following are the details of the two expire cycles and their stop
@@ -134,7 +135,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * The cycle will also refuse to run at all if the latest slow cycle did not
  * terminate because of a time limit condition.
  *
- * 如果type是ACTIVE_EXPIRE_CYCLE_FAST，该函数将尝试运行一个“快速”过期周期，其时间不超过ACTIVE_EXPIRE_CYCLE_FAST_DURATION微秒，并且在相同的时间之前不会重复。
+ * 如果type是ACTIVE_EXPIRE_CYCLE_FAST，该函数将尝试运行一个“快速”过期周期，其时间不超过 ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 微秒，并且在 ACTIVE_EXPIRE_CYCLE_FAST_DURATION 时间之内不会重复执行。
  * 如果最近的慢周期由于时间限制条件没有终止，则周期将完全拒绝运行。
  *
  * If type is ACTIVE_EXPIRE_CYCLE_SLOW, that normal expire cycle is
@@ -198,7 +199,9 @@ void activeExpireCycle(int type) {
         /* Don't start a fast cycle if the previous cycle did not exit
          * for time limit, unless the percentage of estimated stale keys is
          * too high. Also never repeat a fast cycle for the same period
-         * as the fast cycle total duration itself. */
+         * as the fast cycle total duration itself.
+         *
+         */
         if (!timelimit_exit &&
             server.stat_expired_stale_perc < config_cycle_acceptable_stale)
             return;

@@ -76,7 +76,7 @@
 #define AE_NOTUSED(V) ((void) V)
 
 /*
- * 事件处理器
+ * 事件循环
  */
 struct aeEventLoop;
 
@@ -89,9 +89,11 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 /* File event structure
  *
  * 文件事件结构
+ *
+ * 每一个文件描述符可能对应多个
  */
 typedef struct aeFileEvent {
-    // 事件类型掩码
+    // 事件类型
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
 
     // 读事件处理器器（函数）
@@ -102,20 +104,24 @@ typedef struct aeFileEvent {
 
     // 多路复用库的私有数据
     void *clientData;
+
 } aeFileEvent;
 
 /* Time event structure
  *
  * 时间事件结构
+ *
+ * 服务器将所有时间事件都放在一个链表中，每当时间事件执行器运行时，它就遍历整个链表，
+ * 查找所有已到达的事件事件，并调用相应的事件处理器。
  */
 typedef struct aeTimeEvent {
-    // 时间时间的唯一标志
+    // 时间事件的唯一标志
     long long id; /* time event identifier. */
 
-    // 事件的到达时间
+    // 事件的到达时间，毫秒精度的 UNIX 时间戳
     monotime when;
 
-    // 事件处理函数
+    // 时间事件处理函数，当时间事件到达时，服务器会调用该函数处理
     aeTimeProc *timeProc;
 
     // 事件释放函数
@@ -149,10 +155,10 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program
  *
- * 事件处理器状态结构
+ * 事件循环
  */
 typedef struct aeEventLoop {
-    // 目前已注册的最大描述符
+    // 目前已注册的最大文件描述符
     int maxfd;   /* highest file descriptor currently registered */
 
     // 目前已追踪的最大描述符
@@ -162,12 +168,14 @@ typedef struct aeEventLoop {
     long long timeEventNextId;
 
     // 已注册的文件事件
+    // eg: aeFileEvent *fe = &eventLoop->events[fd] ,
     aeFileEvent *events; /* Registered events */
 
     // 已就绪的文件事件
+    // eg:  eventLoop->fired[j].fd = e->data.fd;
     aeFiredEvent *fired; /* Fired events */
 
-    // 时间事件
+    // 时间事件链表的头指针
     aeTimeEvent *timeEventHead;
 
     // 事件处理器的开关， 1 -> 停止事件处理器
@@ -185,6 +193,8 @@ typedef struct aeEventLoop {
 
     int flags;
 } aeEventLoop;
+
+
 
 /* Prototypes */
 aeEventLoop *aeCreateEventLoop(int setsize);

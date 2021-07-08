@@ -495,24 +495,28 @@ void flushAppendOnlyFile(int force) {
          */
         if (sync_in_progress) {
 
-            // 前面没有推迟过 write 操作，这里将推迟写操作的时间记录下来，然后就返回，不执行 write 或者 fsync
+            // 前面没有推迟过 fsync 操作，这里将时间记录下来，然后返回。
+            // 记录时间的目的是，判断推迟刷盘时间是否超过阈值，也就是 2 秒
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
                  * postponing the flush and return.*/
                 server.aof_flush_postponed_start = server.unixtime;
                 return;
 
-                // 如果之前已经因为 fsync 而延迟 write 操作，但是推迟的时间不超过 2 秒，那么直接返回，不执行 write 或者 fsync
+                // 如果之前已经推迟过 fsync，但仍不到两秒钟的时间内，允许继续推迟 fsync
             } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
                 /* We were already waiting for fsync to finish, but for less
                  * than two seconds this is still ok. Postpone again. */
                 return;
             }
+
             /* Otherwise fall trough, and go write since we can't wait
              * over two seconds.
-             * 如果后台有 fsync 在执行，且 write 已经推迟 >= 2 秒，那么执行写操作（write 将被阻塞）
+             *
+             * 否则，阻塞主线程。因为不能等待超过两秒钟
              */
             server.aof_delayed_fsync++;
+
             serverLog(LL_NOTICE,
                       "Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
@@ -685,6 +689,7 @@ void flushAppendOnlyFile(int force) {
 
         // 放到后台执行
         if (!sync_in_progress) {
+            // 创建一个任务，并加入到类型为 BIO_AOF_FSYNC 的BIO 线程的队列
             aof_background_fsync(server.aof_fd);
             server.aof_fsync_offset = server.aof_current_size;
         }

@@ -506,7 +506,10 @@ void initSentinelConfig(void) {
 
 void freeSentinelLoadQueueEntry(void *item);
 
-/* Perform the Sentinel mode initialization. */
+/* Perform the Sentinel mode initialization.
+ *
+ * 以 Sentinel 模式初始化服务器
+ */
 void initSentinel(void) {
     unsigned int j;
 
@@ -534,9 +537,13 @@ void initSentinel(void) {
     /* Initialize various data structures. */
     sentinel.current_epoch = 0; // 初始化纪元
     sentinel.masters = dictCreate(&instancesDictType,NULL); // 初始化保存主服务器信息的字典
+
+    // 初始化 TILT 模式的相关选项
     sentinel.tilt = 0;
     sentinel.tilt_start_time = 0;
     sentinel.previous_time = mstime();
+
+    // 初始化脚本相关选项
     sentinel.running_scripts = 0;
     sentinel.scripts_queue = listCreate();
     sentinel.announce_ip = NULL;

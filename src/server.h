@@ -1364,10 +1364,17 @@ struct redisServer {
     socketFds cfd;              /* Cluster bus listening socket */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
+
+    // 全局等待写队列（客户端等待写链表）
     list *clients_pending_write; /* There is to write or install handler. */
+    // 全局等待读队列（客户端等待读链表）
     list *clients_pending_read;  /* Client has pending read socket buffers. */
+
+
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
+
+
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
@@ -1656,6 +1663,8 @@ struct redisServer {
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
+
+    // 最大并发客户端数
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
