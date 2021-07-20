@@ -423,7 +423,6 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
  */
 void addReply(client *c, robj *obj) {
 
-    //
     if (prepareClientToWrite(c) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
