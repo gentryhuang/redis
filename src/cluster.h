@@ -85,7 +85,7 @@ typedef struct clusterLink {
     // 连接的创建时间
     mstime_t ctime;             /* Link creation time */
 
-    // 连接
+    // 连接，用于连接远程节点
     connection *conn;           /* Connection to remote node */
 
     // 输出缓冲区，保存着等待发送给其他节点的消息（message）
@@ -271,10 +271,10 @@ typedef struct clusterNode {
     // 最后一次发送 PING 命令的时间戳
     mstime_t ping_sent;      /* Unix time we sent latest ping */
 
-    // 最后一次接收 PONG 回复的时间戳
+    // 当前 Redis 实例最后一次接收当前节点 PONG 回复的时间戳 ？
     mstime_t pong_received;  /* Unix time we received the pong */
 
-    // 接收数据的时间戳
+    // 当前 Redis 实例接收当前节点数据的时间戳
     mstime_t data_received;  /* Unix time we received any data */
 
     // 最后一次被设置为 FAIL 状态的时间戳
