@@ -299,8 +299,8 @@ typedef struct clusterNode {
                                    if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
 
-    // 保存连接节点所需的有关信息
-    clusterLink *link;          /* TCP/IP link with this node */
+    // 保存连接节点所需的有关信息，如 套接字描述符、输入/输出缓冲区
+    clusterLink *link;          /* TCP/IP link with this node 和该节点的 tcp 连接*/
 
     // 一个链表，记录了所有其他节点对该节点的下线报告
     list *fail_reports;         /* List of nodes signaling this as failing */
