@@ -45,6 +45,7 @@ extern const char *SDS_NOINIT;
 
 /*
  * 类型别名
+ * 说明：SDS 本质还是字符数组，只是在字符数组基础上增加了额外的元数据
  */
 typedef char *sds;
 
@@ -52,6 +53,11 @@ typedef char *sds;
  * 说明：
  * 1 sdshdrN: 其中的 N 表示当前的 SDS 可以存储的字节数为 2^N
  * 2 sdshdrN 中的 flags 用于标志是哪种 sds
+ * 3 相比于 C 语言中的字符串实现，SDS 这种字符串的实现方式，会提升字符串的操作效率，并且可以用来保存二进制数据。
+ * 4 因为 Redis 是使用 C 语言开发的，所以为了保证能尽量复用 C 标准库中的字符串操作函数，Redis 保留了使用字符数组来保存实际的数据。
+ * 5 SDS 结构中有一个元数据 flags，表示的是 SDS 类型。事实上，SDS 一共设计了 5 种类型，分别是 sdshdr5、sdshdr8、sdshdr16、sdshdr32 和 sdshdr64。
+ *   这 5 种类型的主要区别就在于，它们数据结构中的字符数组现有长度 len 和分配空间长度 alloc，这两个元数据的数据类型不同。sdshdr5 这一类型 Redis 已经不再使用了.
+ * 6 SDS 的实现需要考虑操作高效、能保存任意二进制数据，以及节省内存的需求。
  */
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
@@ -59,14 +65,25 @@ struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
+
+/**
+ * 结构说明：
+ * 1 uint8_t 是 8 位无符号整型，会占用 1 字节的内存空间。其它的类推。
+ * 2 当字符串类型是 sdshdr8 时，它能表示的字符数组长度（包括数组最后一位\0）不会超过 256 字节（2 的 8 次方等于 256）。其它的类推
+ * 3 SDS 之所以设计不同的结构头（即不同类型），是为了能灵活保存不同大小的字符串，从而有效节省内存空间。因为在保存不同大小的字符串时，
+ *   结构头占用的内存空间也不一样，这样一来，在保存小字符串时，结构头占用空间也比较少。
+ * 4 除了设计不同类型的结构头，Redis 在编程上还使用了专门的编译优化来节省内存空间。
+ *   如 __attribute__ ((__packed__))的作用就是告诉编译器，在编译 sdshdr8 结构时，不要使用字节对齐的方式，而是采用紧凑的方式分配内存，这样一来，结构体实际占用多少内存空间，编译器就分配多少空间。
+ *   这是因为在默认情况下，编译器会按照 8 字节对齐的方式，给变量分配内存。也就是说，即使一个变量的大小不到 8 个字节，编译器也会给它分配 8 个字节。
+ */
 struct __attribute__ ((__packed__)) sdshdr8 {
-    // 数组实际长度
+    // 字符数组现有长度。 8 位无符号整型，占用 1 字节的内存空间
     uint8_t len; /* used */
-    // 分配的数组的长度
+    // 字符数组已经分配的长度, 不包括结构体和\0结束符
     uint8_t alloc; /* excluding the header and null terminator */
-    // sdshdr 类型
+    // SDS 类型
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    // 数组内容
+    // 字符数组，用来保存实际数据
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
@@ -256,7 +273,12 @@ static inline void sdssetalloc(sds s, size_t newlen) {
 }
 
 /*------------------------------------- 以下是函数定义 --------------------------------------*/
-
+/**
+ * 创建 sds 类型变量，即 char* 类型变量
+ * @param init
+ * @param initlen
+ * @return
+ */
 sds sdsnewlen(const void *init, size_t initlen);
 
 sds sdstrynewlen(const void *init, size_t initlen);
@@ -271,6 +293,13 @@ void sdsfree(sds s);
 
 sds sdsgrowzero(sds s, size_t len);
 
+/**
+ * 字符串追加
+ * @param s 源字符串
+ * @param t 目标字符串
+ * @param len 要追加的长度
+ * @return
+ */
 sds sdscatlen(sds s, const void *t, size_t len);
 
 sds sdscat(sds s, const char *t);

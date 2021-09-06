@@ -28,6 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * 在 ziplist.h 中看不到压缩列表的结构体定义。因为压缩列表本身就是一块连续的内存空间，它通过使用不同的编码来保存数据。
+ */
+
 #ifndef _ZIPLIST_H
 #define _ZIPLIST_H
 

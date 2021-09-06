@@ -90,9 +90,9 @@ typedef long long ustime_t; /* microsecond time type. */
 #define C_ERR                   -1
 
 /* Static server configuration */
-#define CONFIG_DEFAULT_HZ        10             /* Time interrupt calls/sec. */
-#define CONFIG_MIN_HZ            1
-#define CONFIG_MAX_HZ            500
+#define CONFIG_DEFAULT_HZ        10             /* server后台任务的默认运行频率 Time interrupt calls/sec. */
+#define CONFIG_MIN_HZ            1              /* server后台任务的最小运行频率 */
+#define CONFIG_MAX_HZ            500            /* server后台任务的最大运行频率 */
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
 #define CONFIG_MAX_LINE    1024
 #define CRON_DBS_PER_CALL 16
@@ -687,19 +687,28 @@ typedef struct RedisModuleDigest {
  * redisObject 结构体：
  * 1 redisObject 是更高层次的封装，集数据类型和对应的编码为一体。能够应对各种场景的数据读写。
  * 2 Redis 存储的数据都使用 redisObject 来封装，包括 string，hash，list，set，zset 在内的所有数据类型
+ * 说明：
+ * 1 变量后使用冒号和数值的定义方法实际上是 C 语言中的位域定义方法，可以用来有效地节省内存开销。当一个变量占用不了一个数据类型的所有 bits 时，就可以使用位域定义方法
+ * 2 RedisObject 占 16 字节，由四个部分组成：
+ *   - type 占用半个字节
+ *   - encoding 占用半个字节
+ *   - LRU_BITS 占用 3 个字节
+ *   - refcount 占用 4 个字节
+ *   - *ptr 占用 8 个字节
+ *
  */
 typedef struct redisObject {
 
-    // 当前对象使用的数据类型，如 string 。也称为对象的类型。
-    unsigned type: 4;
+    // 当前对象使用的数据类型，如 string、list 等 。也称为对象的类型。
+    unsigned type: 4;// 4bits
 
     // 内部编码类型，代表当前对象底层采用哪种数据结构实现（数据类型的底层实现）
-    unsigned encoding: 4;
+    unsigned encoding: 4; // 4bits
 
 
     // 1. 当该属性用于内存淘汰 LRU 算法时，作为计时时钟，即时间戳
     // 2. 当该属性用于内存淘汰 LFU 算法时，作为数据。低 8 位表示该对象访问的次数，高 16 位表示访问的时间戳
-    unsigned lru: LRU_BITS; /* LRU time (relative to global lru_clock) or
+    unsigned lru: LRU_BITS;  /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time).
                             *
@@ -1151,6 +1160,9 @@ typedef struct zskiplist {
     int level;
 } zskiplist;
 
+/**
+ * zset 相关的结构，包含两个成员：哈希表 dict 和跳表 zsl
+ */
 typedef struct zset {
     dict *dict;
     zskiplist *zsl;

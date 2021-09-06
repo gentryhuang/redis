@@ -1598,8 +1598,14 @@ void tryResizeHashTables(int dbid) {
  * table will use two tables for a long time. So we try to use 1 millisecond
  * of CPU time at every call of this function to perform some rehashing.
  *
+ * 虽然服务器在对数据库执行读取/写入命令时会对数据库进行渐进式 rehash ，但如果服务器长期没有执行命令的话，数据库字典的 rehash 就可能一直没办法完成，
+ * 为了防止出现这种情况，我们需要对数据库执行主动 rehash 。
+ *
  * The function returns 1 if some rehashing was performed, otherwise 0
- * is returned. */
+ * is returned.
+ *
+ * 函数在执行了主动 rehash 时返回 1 ，否则返回 0 。
+ * */
 int incrementallyRehash(int dbid) {
     /* Keys dictionary */
     if (dictIsRehashing(server.db[dbid].dict)) {
@@ -1619,7 +1625,10 @@ int incrementallyRehash(int dbid) {
  * to play well with copy-on-write (otherwise when a resize happens lots of
  * memory pages are copied). The goal of this function is to update the ability
  * for dict.c to resize the hash tables accordingly to the fact we have an
- * active fork child running. */
+ * active fork child running.
+ *
+ * 根据当前是否有 RDB 子进程或者 AOF 子进程，设置是否允许 rehash 扩容功能
+ */
 void updateDictResizePolicy(void) {
     if (!hasActiveChildProcess())
         dictEnableResize();
@@ -1643,7 +1652,10 @@ const char *strChildType(int type) {
 }
 
 /* Return true if there are active children processes doing RDB saving,
- * AOF rewriting, or some side process spawned by a loaded module. */
+ * AOF rewriting, or some side process spawned by a loaded module.
+ *
+ * 是否存在子进程，RDB子进程，或 AOF 子进程
+ */
 int hasActiveChildProcess() {
     return server.child_pid != -1;
 }
@@ -1888,6 +1900,7 @@ void clientsCron(void) {
  *
  * 这个函数处理 "后台" 操作，如： 过期键删除、调整大小、rehash
  */
+// 对数据库执行删除过期键，调整大小，以及主动和渐进式 rehash
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us.
@@ -1896,6 +1909,7 @@ void databasesCron(void) {
      */
     if (server.active_expire_enabled) {
         if (iAmMaster()) {
+            // 清除模式为 CYCLE_SLOW ，这个模式会尽量多清除过期键
             activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
         } else {
             expireSlaveKeys();
@@ -1907,7 +1921,11 @@ void databasesCron(void) {
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
-     * as will cause a lot of copy-on-write of memory pages. */
+     * as will cause a lot of copy-on-write of memory pages.
+     *
+     * 在磁盘上没有其他进程保存DB的情况，可以执行哈希表 rehash。否则，rehash 是不好的，因为这会导致大量内存页的写时复制。
+     */
+    // 在没有 BGSAVE 或者 BGREWRITEAOF 执行时，对哈希表进行 rehash
     if (!hasActiveChildProcess()) {
         /* We use global counters so if we stop the computation at a given
          * DB we'll be able to start from the successive in the next
@@ -1921,12 +1939,14 @@ void databasesCron(void) {
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
+        // 调整字典的大小
         for (j = 0; j < dbs_per_call; j++) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
         }
 
         /* Rehash */
+        // 对字典进行渐进式 rehash
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
                 int work_done = incrementallyRehash(rehash_db);
@@ -3258,6 +3278,9 @@ void makeThreadKillable(void) {
 
 // 服务器初始化
 void initServer(void) {
+
+    //------------------ Redis Server 运行时需要对多种资源记性管理 --------/
+
     int j;
 
     // 设置信号处理函数
@@ -3369,14 +3392,19 @@ void initServer(void) {
         exit(1);
     }
 
+    //------------ 完成资源管理信息的初始化后，对 Redis 数据库进行初始化 ------------/
+    // 每个数据库执行初始化操作，包括创建全局哈希表，为过期 key、被 BLPOP 阻塞的 key、将被 PUSH 的 key 和被监听的 key 创建相应的信息表。
     /* Create the Redis databases, and initialize other internal state. */
     // 5 创建并初始化 Redis 数据库相关结构。
     for (j = 0; j < server.dbnum; j++) {
+        // 创建全局哈希表
         server.db[j].dict = dictCreate(&dbDictType, NULL);
+        //创建过期key的信息表
         server.db[j].expires = dictCreate(&dbExpiresDictType, NULL);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType, NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
+        //为被MULTI/WATCH操作监听的key创建信息表
         server.db[j].watched_keys = dictCreate(&keylistDictType, NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
@@ -3434,6 +3462,12 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
 
+    //------------------ 创建事件驱动框架，并开始启动端口监听，用于接收外部请求 ---------/
+    // 为了高效处理高并发的外部请求，initServer 在创建的事件框架中，针对每个监听 IP 上可能发生的客户端连接，都创建了监听事件，用来监听客户端连接请求。
+    // 同时，initServer 为监听事件设置了相应的处理函数 acceptTcpHandler。这样一来，只要有客户端连接到 server 监听的 IP 和端口，事件驱动框架就会
+    // 检测到有连接事件发生，然后调用 acceptTcpHandler 函数来处理具体的连接。
+
+
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth.
@@ -3442,6 +3476,8 @@ void initServer(void) {
     // 需要说明的是，Redis 作为一个单线程架构模型（整个服务以主线程为主线），它如果想调度一些异步执行的任务，比如周期性任务，处理依赖事件循环机制，没有其它方法。
     // 不过想想，是不是可以像 bio / IO 线程那样，增加一个时间任务线程呢？ 原则上是可以的，只不过这里面涉及到了并发执行问题需要解决。Redis 选择走简单路线，相比处理并发问题，直接使用主线程执行时间任务就行了。
     // 本质上来说，Redis 处理时间事件也是需要主线程来处理的，主线程要轮询时间时间链表，找到到达的然后执行。当处理文件事件用时过多，就会导致触发时间不一定很及时，一般时间事件触发要比真实的晚。
+
+    // 为 Server 后台任务创建定时器
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -6355,6 +6391,7 @@ int main(int argc, char **argv) {
     int j;
     char config_from_stdin = 0;
 
+/* 如果定义了 REDIS_TEST 宏定义，并且 Redis server 启动时的参数符合测试参数，那么 main 函数就会执行相应的测试程序 */
 #ifdef REDIS_TEST
                                                                                                                             if (argc >= 3 && !strcasecmp(argv[1], "test")) {
         int accurate = 0;
@@ -6400,6 +6437,9 @@ int main(int argc, char **argv) {
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+
+    //------------- 一、 基本初始化 -----------------/
+    // 设置时区
     setlocale(LC_COLLATE, "");
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
@@ -6414,16 +6454,17 @@ int main(int argc, char **argv) {
      * race condition with threads that could be creating files or directories.
      */
     umask(server.umask = umask(0777));
-
     uint8_t hashseed[16];
     getRandomBytes(hashseed, sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
 
+
+    //----------------- 二、检查哨兵模式，并检查是否要执行 RDB 检测或 AOF 检测 -----------/
     // 检查服务器是否以 Sentinel 模式启动
     // 这一点非常重要，因为 Sentinel 和普通的实例不同
     server.sentinel_mode = checkForSentinelMode(argc, argv);
 
-    // 2  初始化服务器配置
+    // 2  初始化服务器配置，为各种参数设置默认值
     initServerConfig();
 
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
@@ -6452,10 +6493,16 @@ int main(int argc, char **argv) {
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
+    //  是否执行 RDB 检测或 AOF 检测，这对应了实际运行的程序是 redis-check-rdb 或 redis-check-aof
     if (strstr(argv[0], "redis-check-rdb") != NULL)
         redis_check_rdb_main(argc, argv, NULL);
     else if (strstr(argv[0], "redis-check-aof") != NULL)
         redis_check_aof_main(argc, argv);
+
+
+    //---------------- 三、运行参数解析 --------------/
+    // main 函数会对命令行传入的参数进行解析，并且调用 loadServerConfig 函数，
+    // 对命令行参数和配置文件中的参数进行合并处理，然后为 Redis 各功能模块的关键参数设置合适的取值，以便 server 能高效地运行。
 
     // 4 检查用户是否指定了配置文件，或者配置选项
     if (argc >= 2) {
@@ -6512,11 +6559,15 @@ int main(int argc, char **argv) {
             j++;
         }
 
+        // 参数处理并赋值
         loadServerConfig(server.configfile, config_from_stdin, options);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }
+
     if (server.sentinel_mode) sentinelCheckConfigFile();
+
+    // Redis 可以配置以守护进程的方式启动（配置文件 daemonize = yes），也可以把 Redis 托管给 upstart 或 systemd 来启动 / 停止（supervised = upstart|systemd|auto）。
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
 
@@ -6541,6 +6592,11 @@ int main(int argc, char **argv) {
     }
 
     readOOMScoreAdj();
+
+
+    //--------------------- 四、初始化 Server ----------------/
+    // 完成对运行参数的解析和设置后，main 函数会调用 initServer 函数，对 server 运行时的各种资源进行初始化工作。
+    // 这主要包括了 server 资源管理所需的数据结构初始化、键值对数据库初始化、server 网络框架初始化等。
 
     // 6 创建并初始化服务器 （核心）
     initServer();
@@ -6632,8 +6688,13 @@ int main(int argc, char **argv) {
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
 
-    // 10 启动事件处理循环 (核心)
-    // 主要围绕 IO多路复用 展开的，驱动前面注册的时间事件回调和 IO 事件回调
+
+    //--------------- 五、执行事件驱动框架 ---------------/
+    // 为了能高效处理高并发的客户端连接请求，Redis 采用了事件驱动框架来并发处理不同客户端的连接和读写请求。
+    // main 函数执行到最后时，会调用 aeMain 函数进入事件驱动框架，开始循环处理各种触发的事件。
+
+    // 10 启动事件处理循环 (核心) - 为了能持续地处理并发的客户端请求，server 在 main 函数的最后，会进入事件驱动循环机制
+    // 主要围绕 IO多路复用 展开的，驱动前面注册的时间事件回调和 IO 事件回调。
     aeMain(server.el);
 
     // 11 退出事件处理主循环，删除事件程序

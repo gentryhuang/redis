@@ -41,13 +41,21 @@
  * 通用的创建 Object 的方法，适用于各种数据类型。调用方根据各自对象的特点，覆盖对应的属性即可。
  *
  * @param type 对象的类型 -> 数据类型
- * @param ptr 指针
+ * @param ptr 指向数据对象的指针
  * @return
  */
 robj *createObject(int type, void *ptr) {
+    // 给 redisObject 结构体分配空间
     robj *o = zmalloc(sizeof(*o));
+
+    // 设置redisObject的类型
     o->type = type;
+
+    // 设置redisObject的编码类型，此处是OBJ_ENCODING_RAW，表示常规的SDS。
+    // 注意，这里是默认的，不同数据类型可选择覆盖
     o->encoding = OBJ_ENCODING_RAW;
+
+    //直接将传入的指针赋值给redisObject中的指针。
     o->ptr = ptr;
     o->refcount = 1;
 
@@ -87,12 +95,17 @@ robj *makeObjectShared(robj *o) {
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
 /**
- * 创建一个 REDIS_ENCODING_RAW 编码的字符串对象，该对象的指针指向一个 sds 结构地址
+ * 创建一个 REDIS_ENCODING_RAW 编码的字符串对象，该对象的指针指向一个 sds 结构地址。
+ * 说明：
+ * 在创建普通字符串时，Redis 需要分别给 redisObject 和 SDS 分别分配一次内存，这样就既带来了内存分配开销，同时也会导致内存碎片。
+ * 因此，当字符串小于等于 44 字节时，Redis 就使用了嵌入式字符串的创建方法，以此减少内存分配和内存碎片。
  * @param ptr
  * @param len
  * @return
  */
 robj *createRawStringObject(const char *ptr, size_t len) {
+    // 对象类型：OBJ_STRING
+    // 指向 SDS 结构的指针，由 sdsnewlen 函数返回。
     return createObject(OBJ_STRING, sdsnewlen(ptr, len));
 }
 
@@ -101,18 +114,30 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * allocated in the same chunk as the object itself. */
 /**
  * 创建一个 REDIS_ENCODING_EMBSTR 编码的字符串对象，该字符串对象中的 SDS 字符串实际上是一个不可修改的字符串，因为它和对象本身分配在同一个块中。
+ * 特别说明：
+ *  Redis 会通过设计实现一块连续的内存空间，把 redisObject 结构体和 SDS 结构体紧凑地放置在一起。这样一来，对于不超过 44 字节的字符串来说，就可以避免内存碎片和两次内存分配的开销了。
  * @param ptr
  * @param len
  * @return
  */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
-    // 使用了 sdshdr8  创建 embstr 编码的字符串
+
+    // 分配一块连续的内存空间，大小如下：
+    // redisObject 结构体大小 + SDS结构头 sdshdr8 的大小 + 字符串大小的总和+ 1 字节结束符号"\0"
+    // 注意，分配 redisObject 和 SDS 使用的是一块连续的内存空间
     robj *o = zmalloc(sizeof(robj) + sizeof(struct sdshdr8) + len + 1);
+
+    // 创建 SDS 结构，并把 sh 指向这块连续空间中 SDS 结构头所在位置
+    // 其中，o 是 redisObject 结构体的变量，o+1 表示将内存地址从变量 o 开始移动一段距离，而移动的距离等于 redisObject 这个结构体的大小（o+1:表示累加一个单位的 o）。
     struct sdshdr8 *sh = (void *) (o + 1);
 
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
+
+    // 将 redisObject 中的指针 ptr 指向 SDS 结构中的字符数组
+    // sh 是刚才介绍的指向 SDS 结构的指针，属于 sdshdr8 类型。而 sh+1 表示把内存地址从 sh 起始地址开始移动一定的大小，移动的距离等于 sdshdr8 结构体的大小。
     o->ptr = sh + 1;
+
     o->refcount = 1;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
@@ -123,6 +148,8 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     sh->len = len;
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
+
+    // 将传入的指针 ptr 指向的字符串拷贝到 SDS 结构体中的字符数组中，并在数组最后添加结束符号
     if (ptr == SDS_NOINIT)
         sh->buf[len] = '\0';
     else if (ptr) {
@@ -153,11 +180,21 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 
+/**
+ * 创建字符串对象
+ * @param ptr 字符串 ptr
+ * @param len 字符串长度
+ * @return
+ */
 robj *createStringObject(const char *ptr, size_t len) {
-    // 小于 44 字节，创建 EMBSTR 编码的字符串对象（SDS)
+
+    // 当 len 长度小于 44 字节，创建 EMBSTR 编码的字符串对象（SDS)
+    // 即创建 嵌入式字符串，字符串长度小于等于 44 字节
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr, len);
-        // 创建 RAW 编码的字符串对象(SDS)
+
+
+        // 创建 RAW 编码的字符串对象(SDS)，即普通字符串，字符串长度大于44字节
     else
         return createRawStringObject(ptr, len);
 }

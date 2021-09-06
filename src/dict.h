@@ -59,7 +59,12 @@ typedef struct dictEntry {
     // 键
     void *key;
 
-    // 值
+    /**
+     * 值
+     * 特别说明：
+     * 1 值是一个联合体 v 定义的，这个联合体 v 中包含了指向实际值的指针 *val，还包含了无符号的 64 位整数，有符号的 64 位整数，以及 double 类型的数
+     * 2 将值定义为一个联合体的目的是，为了节省内存。因为当值为整数或双精度浮点数时，由于其本身就是 64 位，就可以不用指针指向了，而是可以直接存在键值对的结构体中，这样就避免了再用一个指针，从而节省了内存空间。
+     */
     union {
         void *val;
         uint64_t u64;
@@ -69,6 +74,7 @@ typedef struct dictEntry {
 
     // 指向下个哈希表节点
     struct dictEntry *next;
+
 } dictEntry;
 
 /**
@@ -110,6 +116,7 @@ typedef struct dictht {
     unsigned long size;
 
     // 哈希表大小掩码，用于计算索引值
+    // 一般是数组长度-1
     unsigned long sizemask;
 
     // 哈希表已有元素数量
@@ -127,10 +134,11 @@ typedef struct dict {
     // 私有数据
     void *privdata;
 
-    // 哈希表（2个）
+    // 哈希表（2个），交替使用，用于 rehash 操作
     dictht ht[2];
 
-    // rehash 索引，当 rehash 不在进行时，值为 -1
+    // Hash 表是否在进行 rehash 的标识，-1 表示没有进行rehash
+    // 其它值表示迁移时对应的桶索引，即 表示的是当前 rehash 在对哪个 bucket 做数据迁移
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
     // 暂停 rehash，当该值 > 0 时，rehash 被暂停。
@@ -298,6 +306,12 @@ void dictEnableResize(void);
 
 void dictDisableResize(void);
 
+/**
+ * 执行键拷贝
+ * @param d 全局 Hash 表
+ * @param n 需要进行拷贝的桶数量
+ * @return
+ */
 int dictRehash(dict *d, int n);
 
 int dictRehashMilliseconds(dict *d, int ms);
