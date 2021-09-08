@@ -2134,6 +2134,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime(1);
 
+    // serverCron 函数会以不同的频率周期性执行一些任务
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
@@ -2148,6 +2149,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
+    // 每1秒执行1次，检查AOF是否有写错误
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -2213,6 +2215,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We need to do a few operations on clients asynchronously. */
+    // 执行客户端的异步操作
     clientsCron();
 
     /* Handle background operations on Redis databases. */
@@ -2420,10 +2423,10 @@ extern int ProcessingEventsWhileBlocked;
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors.
  *
- * 每次 Redis 进入事件驱动库的主循环时，即在为准备好的文件描述符休眠之前，都会调用次函数
+ * 每次 Redis 进入事件驱动库的主循环时，即在为准备好的文件描述符休眠之前，都会调用此函数
  *
  * Note: This function is (currently) called from two functions:
- * 注意，次函数由两个函数调用
+ * 注意，此函数由两个函数调用
  * 1. aeMain - The main server loop
  *    aeMain - 主服务器循环
  * 2. processEventsWhileBlocked - Process clients during RDB/AOF load
@@ -3359,6 +3362,7 @@ void initServer(void) {
 
     /* Open the TCP listening socket for the user commands. */
 
+    // 使用 listenToPort 将所有需要监听的端口进行 socket 建立以及 bind，然后 listen
     // 4 开始 Socket 监听。通过监听服务器 Socket ，程序可以获得客户端文件描述符并存储到 server 全局变量中。后续，程序就可以拿着这一步获得的文件描述符区注册IO事件了。
     // 4.1 TCP
     if (server.port != 0 &&
@@ -3477,7 +3481,7 @@ void initServer(void) {
     // 不过想想，是不是可以像 bio / IO 线程那样，增加一个时间任务线程呢？ 原则上是可以的，只不过这里面涉及到了并发执行问题需要解决。Redis 选择走简单路线，相比处理并发问题，直接使用主线程执行时间任务就行了。
     // 本质上来说，Redis 处理时间事件也是需要主线程来处理的，主线程要轮询时间时间链表，找到到达的然后执行。当处理文件事件用时过多，就会导致触发时间不一定很及时，一般时间事件触发要比真实的晚。
 
-    // 为 Server 后台任务创建定时器
+    // 为 Server 后台任务创建定时器，即创建时间事件，关联的回调函数是 serverCron
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);

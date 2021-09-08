@@ -80,6 +80,7 @@ struct connection {
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
+    // 接受客户端连接，创建已连接套接字
     int fd;
 };
 

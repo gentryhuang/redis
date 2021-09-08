@@ -135,7 +135,7 @@ client *createClient(connection *conn) {
         if (server.tcpkeepalive)
             connKeepAlive(conn, server.tcpkeepalive);
 
-        // 连接设置读处理器
+        // 连接设置读处理器，重要
         connSetReadHandler(conn, readQueryFromClient);
 
         connSetPrivateData(conn, c);
@@ -1039,8 +1039,7 @@ void copyClientOutputBuffer(client *dst, client *src) {
     dst->reply_bytes = src->reply_bytes;
 }
 
-/* Return true if the specified client has pending reply buffers to write to
- * the socket. */
+/* 如果指定的客户端有等待写入套接字的应答缓冲区，则返回true。*/
 int clientHasPendingReplies(client *c) {
     return c->bufpos || listLength(c->reply);
 }
@@ -1107,7 +1106,7 @@ void clientAcceptHandler(connection *conn) {
 #define MAX_ACCEPTS_PER_CALL 1000
 
 /**
- *  TCP 连接 accept 处理器
+ *  TCP 连接 accept 处理器，通过调用 createClient 函数创建客户端
  * @param conn
  * @param flags
  * @param ip
@@ -1189,7 +1188,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
 /*
  * 连接应答处理器
  *
- * 用于对连接服务器监听套接字的客户端进行应答。
+ * 用于对连接服务器监听套接字的客户端进行应答，即 Redis server 接收到客户端的连接请求就会使用 acceptTcpHandler 函数进行处理
  *
  * 当 Redis 服务器初始化时，程序会将这个连接应答处理器和服务器监听套接字的 AE_READABLE 事件关联起来，
  * 当有客户端向服务器发起连接，那么服务器监听套接字就会产生 AE_READABLE 事件，触发连接应答处理器执行。
@@ -1205,7 +1204,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
 
     while (max--) {
-        // accept 客户端连接
+        // accept 客户端连接，并创建已连接套接字 cfd
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -1715,9 +1714,9 @@ int writeToClient(client *c, int handler_installed) {
 
 /* Write event handler. Just send data to the client.
  *
- * 命令回复处理器
- *
- * 负责将服务器执行命令后得到的结果通过套接字返回给客户端
+ * 命令回复处理器，负责将服务器执行命令后得到的结果通过套接字返回给客户端。
+ * 说明：
+ *  而当实例需要向客户端写回数据时，实例会在事件驱动框架中注册可写事件，并使用 sendReplyToClient 作为回调函数，将缓冲区中数据写回客户端 ？？？？
  *
  * 当服务器有命令回复需要传送给客户端的时候，服务器会将客户端套接字的 AE_WRITEABLE 事件和命令回复处理器关联起来，
  * 当客户端准备好接收服务器传回的结果时，就会产生 AE_WRITABLE 事件，引发命令回复处理器执行，并执行相应的套接字写入操作。
@@ -2271,9 +2270,11 @@ void processInputBuffer(client *c) {
 }
 
 /*
- * Redis 命令处理器
+ * Redis 命令处理器 - 读事件处理，负责从套接字中读入客户端发送的命令请求内容。
+ * 特别说明：
+ * 1 当 server 和客户端完成连接建立后，server 会在已连接套接字上监听可读事件，并使用 readQueryFromClient 函数处理客户端读写请求
+ * 2 无论客户端发送的请求是读或写操作，对于 server 来说，都是要读取客户端的请求并解析处理。所以，server 在客户端的已连接套接字上注册的是可读事件。
  *
- * 命令处理器负责从套接字中读入客户端发送的命令请求内容。
  *
  * 当一个客户端通过连接应答处理器成功连接到服务器之后，服务器会将客户端套接字的AE_READABLE 事件和命令请求处理器关联起来，
  * 当客户端向服务器发送命令请求的时候，套接字就会产生 AE_READABLE 事件，引发命令请求处理器执行，并执行相应的套接字读入操作。
@@ -3803,8 +3804,13 @@ int stopThreadedIOIfNeeded(void) {
     }
 }
 
+/**
+ * 遍历每一个待写回数据的客户端，然后调用 writeToClient 函数，将客户端输出缓冲区中的数据写回。
+ * 注意：处理器处理完客户端的请求后，会先把响应数据写到对应的 Client 的内存 buffer 中，在下一次处理IO事件之前，redis 会把每个 Client 的 buffer 数据写到 Client 的 Socket 中响应过去
+ * @return
+ */
 int handleClientsWithPendingWritesUsingThreads(void) {
-    // 全局客户端等待写队列是否为空
+    // 全局客户端等待写队列是否为空，如果为空说明没有要写回客户端的数据
     int processed = listLength(server.clients_pending_write);
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
 
@@ -3828,7 +3834,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     listRewind(server.clients_pending_write, &li);
     int item_id = 0;
 
-    // 遍历客户端等待写队列
+    // 遍历每个客户端等待写队列
     while ((ln = listNext(&li))) {
 
         // 取出等待的客户端
@@ -3843,6 +3849,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         }
 
         // 将写任务均匀分发到各个 IO 线程的任务链表 io_threads_list
+        // 这样的话，IO 线程会自动处理写任务，因为它们一旦开启就不断轮询任务
         int target_id = item_id % server.io_threads_num;
         listAddNodeTail(io_threads_list[target_id], c);
         item_id++;
@@ -3869,6 +3876,8 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     listRewind(io_threads_list[0], &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+
+        // 将当前客户端输出缓冲区中的数据写回
         writeToClient(c, 0);
     }
     listEmpty(io_threads_list[0]);
@@ -3887,7 +3896,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* Run the list of clients again to install the write handler where
      * needed.
      *
-     *
      */
     listRewind(server.clients_pending_write, &li);
     while ((ln = listNext(&li))) {
@@ -3899,6 +3907,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
          * 如果某些客户端中有挂起的写操作，则关联命令回复处理器
          */
         if (clientHasPendingReplies(c) &&
+            // 如果缓冲区数据还没有写完，此时关联命令回复处理器 sendReplyToClient，它里面会调用 writeToClient 函数写回数据
             connSetWriteHandler(c->conn, sendReplyToClient) == AE_ERR) {
             freeClientAsync(c);
         }
@@ -3945,7 +3954,6 @@ int postponeClientRead(client *c) {
  * the queue using the I/O threads, and process them in order to accumulate
  * the reads in the buffers, and also parse the first command available
  * rendering it in the client structures.
- *
  *
  */
 int handleClientsWithPendingReadsUsingThreads(void) {

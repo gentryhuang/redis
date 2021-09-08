@@ -67,10 +67,13 @@
 /*
  * 创建事件循环
  *
+ * 说明：
  * 1 创建一个 aeEventLoop 结构，并存储到 server 中。
  * 2 事件循环的执行依赖系统底层的 IO多路复用，如 epoll
  * 3 Redis 事件的核心是基于系统底层的 IO多路复用 封装了一套
- * setsize 可以处理的文件描述符的总数
+ * 注意：
+ * 1 setsize 表示可以处理的文件描述符的总数，事件驱动框架监听的 IO 事件数组大小等于 setsize ，这样决定了和 Redis server 连接的客户端数量。当客户端连接 Redis 超过最大连接数可以修改
+ *   redis.conf 文件修改 maxclients 配置项
  */
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
@@ -79,7 +82,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     // 防止调用应用程序没有初始化
     monotonicInit();    /* just in case the calling app didn't initialize */
 
-    // 创建事件程序状态
+    // 给eventLoop变量分配内存空间
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
 
     // 分别初始化文件事件结构数组、已就绪文件事件结构数组
@@ -93,20 +96,23 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     // 初始化时间事件结构
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
+
+
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
     eventLoop->flags = 0;
 
-    // 创建多路复用程序
-    // 这一步是关联IO多路函数的核心
+    // 创建多路复用程序，实际调用操作系统提供的IO多路复用函数
+    // 这一步是关联操作系统的IO多路函数的核心，即去持有操作系统关键属性
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it.
      *
-     * 初始化监听事件，初始的事件类型为 AE_NONE ，及不监听任何事件
+     * 初始化监听事件，初始的事件类型为 AE_NONE ，表示暂时不监听任何事件
      */
+    // 将所有网络IO事件对应文件描述符的掩码设置为AE_NONE
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
 
@@ -198,6 +204,8 @@ void aeStop(aeEventLoop *eventLoop) {
 
 
 /**
+ * IO 事件的创建是通过该函数来完成的，它通过 aeApiAddEvent 函数来完成事件注册。
+ *
  * 根据 mask 参数的值(文件事件类型)，监听 fd 对应的套接字的状态，并将事件和事件处理器关联。当套接字可用时，执行处理器。
  *
  * 即：
@@ -208,9 +216,9 @@ void aeStop(aeEventLoop *eventLoop) {
  * 说明：套接字和套接字的事件是一起的
  *
  * @param eventLoop 事件程序状态
- * @param fd 文件描述符
- * @param mask 事件类型
- * @param proc 事件处理器
+ * @param fd IO事件对应的文件描述符
+ * @param mask 事件类型掩码
+ * @param proc 事件处理回调函数
  * @param clientData 多路复用库私有数据
  * @return
  */
@@ -221,11 +229,12 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         return AE_ERR;
     }
 
-    // 1 取出文件描述符 fd 对应的事件结构
+    // 1 取出文件描述符 fd 对应的 IO事件
     aeFileEvent *fe = &eventLoop->events[fd];
 
-    // 2 监听指定 fd(套接字) 上的指定事件
-    // 特别说明：Redis 的 I/O 多路复用程序的所有功能都是通过包装常见的 select、epoll、evport 和 kqueue 这些 I/O 多路复用函数来实现的
+    // 2 监听指定 fd(套接字) 上的指定事件，即添加要监听的事件
+    // 特别说明：Redis 的 I/O 多路复用程序的所有功能都是通过包装常见的 select、epoll、evport 和 kqueue 这些 I/O 多路复用函数来实现的，
+    // 该函数实际上会调用操作系统提供的 IO 多路复用函数来完成事件的添加。
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
 
@@ -460,7 +469,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             id = te->id;
             te->refcount++;
 
-            // 执行事件处理器，并获取返回值
+            // 调用注册的回调函数处理，并获取返回值
             retval = te->timeProc(eventLoop, id, te->clientData);
 
             te->refcount--;
@@ -476,6 +485,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 te->id = AE_DELETED_EVENT_ID;
             }
         }
+
+        //获取下一个时间事件
         te = te->next;
     }
     return processed;
@@ -527,12 +538,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
+    // 一、如果没有事件处理，则直接返回
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want to call select() even if there are no
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
+    // 二、如果有 IO 事件发生，或者紧急的时间事件发生，则开始处理
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
@@ -572,25 +585,34 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
 
         /*------------------------- IO 线程激活代码区 ----------------------------------*/
 
-        /* 2 前置回调函数 - beforeSleep */
+        /* 2 前置回调函数 - beforeSleep （server.c 中的方法，服务器初始化时绑定的 - initServer方法 */
         if (eventLoop->beforesleep != NULL && flags & AE_CALL_BEFORE_SLEEP)
             eventLoop->beforesleep(eventLoop);
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires.
          *
-         * 3 调用多路复用 API，只会在超时或某些事件触发时返回。即等待事件产生
+         * 3 调用多路复用 API，只会在超时或某些事件触发时返回。即等待事件产生。
+         *    用于获取就绪的描述符
          */
+        // 捕获事件，检查是否有新的连接、读写事件发生，依赖操作系统底层提供的 IO多路复用机制。
+        // 为了适配不同的操作系统，Redis 对不同操作系统实现的网络 IO 多路复用函数，都进行了统一的封装，封装后的代码分别在不同的文件中：
+        // - ae_epoll.c，对应 Linux 上的 IO 复用函数 epoll；
+        // - ae_evport.c，对应 Solaris 上的 IO 复用函数 evport；
+        // - ae_kqueue.c，对应 macOS 或 FreeBSD 上的 IO 复用函数 kqueue；
+        // - ae_select.c，对应 Linux（或 Windows）的 IO 复用函数 select。
+        // 有了这些封装代码后，Redis 在不同的操作系统上调用 IO 多路复用 API 时，就可以通过统一的接口来进行调用了。
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
-        /* 4 后置回调函数 - beforeSleep */
+        /* 4 后置回调函数 - beforeSleep  （server.c 中的方法，服务器初始化时绑定的 - initServer方法）*/
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
         /*--------------------------IO 线程激活代码区 ---------------------------------*/
 
 
+        // 分发事件
         // 5 遍历所有已产生的事件，并调用相应的事件处理器来处理这些事件
         for (j = 0; j < numevents; j++) {
 
@@ -619,7 +641,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
              *
              * Fire the readable event if the call sequence is not
              * inverted. */
-            // 5.2 如果是套接字上发生读事件，调用读事件处理器处理读事件
+
+            // 处理事件
+            // 事件具体由哪个函数来处理的呢？这就和框架中的 aeCreateFileEvents 函数有关了。
+
+            // 5.2 如果是套接字上发生读事件，调用事件注册时设置的读事件回调处理函数
             if (!invert && fe->mask & mask & AE_READABLE) {
                 fe->rfileProc(eventLoop, fd, fe->clientData, mask);
                 fired++;
@@ -627,7 +653,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
             }
 
             /* Fire the writable event. */
-            // 5.3 如果是套接字上发生写事件，调用写事件处理器处理写事件
+            // 5.3 如果是套接字上发生写事件，调用事件注册时设置的写事件回调处理函数
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop, fd, fe->clientData, mask);
@@ -653,11 +679,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
         }
     }
     /* Check time events */
-    // 6 如果是时间事件
+    // 三、6 检测时间事件是否触发
     if (flags & AE_TIME_EVENTS)
         // 执行时间事件
         processed += processTimeEvents(eventLoop);
 
+    // 返回已经处理的文件或时间
     return processed; /* return the number of processed file/time events */
 }
 
@@ -692,6 +719,9 @@ int aeWait(int fd, int mask, long long milliseconds) {
 
 /**
  * 事件处理器的主循环
+ * 说明：
+ * 1 用一个循环不停地判断事件循环的停止标记，如果事件循环的停止标记被设置为 true ，那么针对事件捕获、分发和处理的整个主循环就停止了；否则主循环会一直执行。
+ * 2 按照事件驱动框架的编程规范来说，框架主循环是在服务器程序初始化完成后，就会开始执行
  * @param eventLoop
  */
 void aeMain(aeEventLoop *eventLoop) {
@@ -699,7 +729,7 @@ void aeMain(aeEventLoop *eventLoop) {
 
     // 主线程进入主循环，一直处理事件，直到服务器关闭
     while (!eventLoop->stop) {
-        // 开始处理事件
+       // 负责事件捕获、分发和处理
         aeProcessEvents(eventLoop, AE_ALL_EVENTS |
                                    AE_CALL_BEFORE_SLEEP |
                                    AE_CALL_AFTER_SLEEP);

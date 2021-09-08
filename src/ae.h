@@ -82,27 +82,33 @@ struct aeEventLoop;
 
 /* Types and data structures */
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
+
 typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
+
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
+
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure
  *
  * 文件事件结构
  *
- * 每一个文件描述符可能对应多个
+ * 每一个文件描述符可能对应多个 IO 事件，即：
+ * 1 eventLoop 中的 IO 事件数组是通过文件描述符进行定位的，也就是文件描述符号作为数组的下标
+ * 2 每个 IO 事件都对应一个文件描述符（套接字）相关联的监听事件类型和回调函数。
  */
 typedef struct aeFileEvent {
-    // 事件类型
+    // 事件类型的掩码
+    // 主要有 AE_READABLE、AE_WRITABLE 和 AE_BARRIER 三种类型事件。事件驱动框架在分发事件时，依赖的就是结构体中的事件类型
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
 
-    // 读事件处理器器（函数）
+    // 读事件处理器器，指向 AE_READABLE 事件的处理函数 （Reactor 中的 handler）
     aeFileProc *rfileProc;
 
-    // 写事件处理器（函数）
+    // 写事件处理器，指向 AE_WRITABLE 事件的处理函数（Reactor 中的 handler）
     aeFileProc *wfileProc;
 
-    // 多路复用库的私有数据
+    // 多路复用库的私有数据（指向客户端私有数据的指针）
     void *clientData;
 
 } aeFileEvent;
@@ -124,15 +130,16 @@ typedef struct aeTimeEvent {
     // 时间事件处理函数，当时间事件到达时，服务器会调用该函数处理
     aeTimeProc *timeProc;
 
-    // 事件释放函数
+    // 事件结束后的释放函数
     aeEventFinalizerProc *finalizerProc;
 
     // 多路复用库的私有数据
     void *clientData;
 
+
+    /*   时间事件是以链表的形式组织起来的  */
     // 指向上一个时间事件结构
     struct aeTimeEvent *prev;
-
     // 指向下一个时间事件结构
     struct aeTimeEvent *next;
 
@@ -155,7 +162,7 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program
  *
- * 事件循环
+ * 事件循环结构体，记录了事件驱动框架循环运行过程中的信息
  */
 typedef struct aeEventLoop {
     // 目前已注册的最大文件描述符
@@ -167,21 +174,21 @@ typedef struct aeEventLoop {
     // 用于生成时间事件 id
     long long timeEventNextId;
 
-    // 已注册的文件事件
+    // 已注册的文件事件（IO事件，因为所有IO事件都会用文件描述符进行标识）数组
     // eg: aeFileEvent *fe = &eventLoop->events[fd] ,
     aeFileEvent *events; /* Registered events */
 
-    // 已就绪的文件事件
+    // 已就绪的文件事件（记录已触发事件对应的文件描述符信息）数组
     // eg:  eventLoop->fired[j].fd = e->data.fd;
     aeFiredEvent *fired; /* Fired events */
 
-    // 时间事件链表的头指针
+    // 时间事件链表的头指针，按一定时间周期触发的事件
     aeTimeEvent *timeEventHead;
 
     // 事件处理器的开关， 1 -> 停止事件处理器
     int stop;
 
-    // 多路复用库的私有数据
+    // 多路复用库的私有数据，如使用 Linux 下的 epoll 时，ae_epoll.c 中封装的 aeApiState 结构，它保存了 epoll 实例的信息
     void *apidata; /* This is used for polling API specific data */
 
     // 在处理事件前要执行的函数
@@ -197,25 +204,75 @@ typedef struct aeEventLoop {
 
 
 /* Prototypes */
+/**
+ * 初始化事件循环结构体，包括 IO 事件数组和时间事件链表
+ * @param setsize
+ * @return
+ */
 aeEventLoop *aeCreateEventLoop(int setsize);
+
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
+
 void aeStop(aeEventLoop *eventLoop);
+
+/**
+ * 负责事件和 handler 注册的 aeCreateFileEvent 函数
+ * @param eventLoop
+ * @param fd
+ * @param mask
+ * @param proc
+ * @param clientData
+ * @return
+ */
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData);
+                      aeFileProc *proc, void *clientData);
+
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
+
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
+
+/**
+ * 创建时间事件
+ * @param eventLoop
+ * @param milliseconds  所创建时间事件的触发时间距离当前时间的时长，是用毫秒表示的
+ * @param proc 所创建时间事件触发后的回调函数。
+ * @param clientData
+ * @param finalizerProc
+ * @return
+ */
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
-        aeTimeProc *proc, void *clientData,
-        aeEventFinalizerProc *finalizerProc);
+                            aeTimeProc *proc, void *clientData,
+                            aeEventFinalizerProc *finalizerProc);
+
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
+
+/**
+ * 负责事件捕获与分发的函数
+ * @param eventLoop
+ * @param flags
+ * @return
+ */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
+
 int aeWait(int fd, int mask, long long milliseconds);
+
+/**
+ * 事件驱动框架主循环函数
+ * @param eventLoop
+ */
 void aeMain(aeEventLoop *eventLoop);
+
+
 char *aeGetApiName(void);
+
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
+
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
+
 int aeGetSetSize(aeEventLoop *eventLoop);
+
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
+
 void aeSetDontWait(aeEventLoop *eventLoop, int noWait);
 
 #endif

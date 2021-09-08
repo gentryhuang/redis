@@ -35,7 +35,7 @@
  * epoll 实例私有数据
  */
 typedef struct aeApiState {
-    // epoll 实例的标志
+    // epoll 实例的描述符
     int epfd;
 
     // 事件表
@@ -55,7 +55,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     if (!state) return -1;
 
-    // 初始化事件表
+    // 初始化事件表， 将 epoll 的 epoll_event 数组保存到 aeApiState 结构体变量 state 中
     state->events = zmalloc(sizeof(struct epoll_event)*eventLoop->setsize);
 
 
@@ -64,7 +64,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
 
-    // 调用 epoll 接口创建 epoll 实例，并返回 epoll 的文件描述符
+    // 调用 epoll 接口创建 epoll 实例，并返回 epoll 的文件描述符，将该描述符保存到 aeApiState 结构体变量 state 中
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
 
     // 如果创建 epoll 失败，则释放相关内存空间
@@ -77,7 +77,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     anetCloexec(state->epfd);
 
-    // 赋值给 eventLoop 中的属性
+    // 把 state 变量赋值给 eventLoop 中的 apidata。这样一来，eventLoop 结构体中就有了 epoll 实例和 epoll_event 数组的信息，这样就可以用来基于 epoll 创建和处理事件了。
+    // 即将 epoll 的关键信息通过 aeApiState 结构体绑定到事件循环中
     eventLoop->apidata = state;
     return 0;
 }
@@ -103,36 +104,46 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
-/*
+/**
  * 关联给定事件到 fd
+ *
+ * @param eventLoop 事件循环
+ * @param fd 要监听的文件描述符
+ * @param mask 事件类型掩码
+ * @return
  */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
-    // 获取 epoll 实例数据
+    // 1 获取 epoll 实例数据,epoll 实例是通过 aeApiCreate 函数创建的，保存在 eventLoop 结构体的 apidata 属性中，类型是 aeApiState
     aeApiState *state = eventLoop->apidata;
 
-    // 准备一个 epoll_event 对象
+    // 2 准备一个 epoll 的 epoll_event ，然后下面逻辑会设置 ee 中的监听事件类型和监听文件描述符
     struct epoll_event ee = {0}; /* avoid valgrind warning */
 
     /* If the fd was already monitored for some event, we need a MOD
      * operation. Otherwise we need an ADD operation.
      *
-     * 如果 fd 没有关联任何事件，那么这是一个 ADD 操作，
+     * 如果 fd 没有关联任何事件（初始值是 AE_NONE），那么这是一个 ADD 操作，
      * 如果已经关联了某个/某些事件，那么这是一个 MOD 操作。
      */
+    // 3 判断操作类型，是新增还是修改
     int op = eventLoop->events[fd].mask == AE_NONE ?
             EPOLL_CTL_ADD : EPOLL_CTL_MOD;
 
-    /// 注册感兴趣的事件
+    // 2.1 注册感兴趣的事件
     ee.events = 0;
+
+    // 将可读或可写IO事件类型转换为epoll监听的类型EPOLLIN或EPOLLOUT
+    // 说明：根据事件类型掩码是 可读（AE_READABLE）或可写（AE_WRITABLE）事件来来设置 ee 监听的事件类型是 EPOLLIN 还是 EPOLLOUT。
+    // 这样一来，Redis 事件驱动框架中的读写事件就能够和 epoll 机制中的读写事件对应上来
     mask |= eventLoop->events[fd].mask; /* Merge old events */
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
 
-    // 设置文件描述符
+    // 2.2 设置文件描述符
     ee.data.fd = fd;
 
-    // 通过调用 epoll_ctl 函数向 epoll 对象中添加、删除、修改感兴趣的文件描述符事件信
+    // 4 通过调用 Linux 下的 epoll_ctl 函数向 epoll 对象中添加、删除、修改感兴趣的文件描述符事件信息
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
 
     return 0;
@@ -170,7 +181,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
-    // 调用 epoll 的接口
+    // 调用 epoll 的接口获取监听到事件
     // 成功时返回就绪的事件数目，调用失败时返回 -1，等待超时返回 0。
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + (tvp->tv_usec + 999)/1000) : -1);
@@ -179,9 +190,11 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     if (retval > 0) {
         int j;
 
-
-        // 遍历 events ，将对应文件描述符发生的事件加入到 eventLoop 的 fired 数组中
+        // 获得监听到的事件数量
         numevents = retval;
+
+        // 针对每个事件进行处理
+        // 遍历 events ，将对应文件描述符发生的事件加入到 eventLoop 的 fired 数组中
         for (j = 0; j < numevents; j++) {
             int mask = 0;
             struct epoll_event *e = state->events+j;
