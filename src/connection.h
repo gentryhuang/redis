@@ -53,6 +53,9 @@ typedef enum {
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
+/**
+ * 连接类型，定义了各种函数
+ */
 typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
@@ -70,15 +73,22 @@ typedef struct ConnectionType {
     int (*get_type)(struct connection *conn);
 } ConnectionType;
 
+/**
+ * 客户端与服务端的连接
+ */
 struct connection {
+    // 连接类型，里面封装了多种函数
     ConnectionType *type;
     ConnectionState state;
     short int flags;
     short int refs;
     int last_errno;
     void *private_data;
+    // 连接处理函数
     ConnectionCallbackFunc conn_handler;
+    // 写处理函数
     ConnectionCallbackFunc write_handler;
+    // 读处理函数
     ConnectionCallbackFunc read_handler;
     // 接受客户端连接，创建已连接套接字
     int fd;
@@ -155,6 +165,8 @@ static inline int connRead(connection *conn, void *buf, size_t buf_len) {
 
 /* Register a write handler, to be called when the connection is writable.
  * If NULL, the existing handler is removed.
+ *
+ * 注册一个写处理程序，以便在连接可写时调用。如果为NULL，则删除现有的处理程序。
  */
 static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc func) {
     return conn->type->set_write_handler(conn, func, 0);
@@ -162,8 +174,12 @@ static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc f
 
 /* Register a read handler, to be called when the connection is readable.
  * If NULL, the existing handler is removed.
+ *
+ * 注册一个读处理程序，以便在连接可读时调用。如果为NULL，则删除现有的处理程序。
  */
 static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
+    // 调用当前连接中的 type 中的 set_read_handler 函数，将读处理程序进行注册，以监听读事件
+    // 具体的事件注册和绑定读处理程序参见 ConnectionType CT_Socket 初始化
     return conn->type->set_read_handler(conn, func);
 }
 

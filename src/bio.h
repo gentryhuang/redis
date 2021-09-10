@@ -45,11 +45,14 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
 /* Background job opcodes 后台作业操作码
  * 1 处理关闭文件
  * 2 AOF 异步刷盘
- * 3 lazyfree
+ * 3 lazyfree 惰性删除
+ * 说明：
+ * bio 工作模型采用的是生产者-消费者模型
  */
 #define BIO_CLOSE_FILE    0 /* Deferred close(2) syscall. */
 #define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. */
 #define BIO_LAZY_FREE     2 /* Deferred objects freeing. */
-#define BIO_NUM_OPS       3 /* bio 类型数 */
+
+#define BIO_NUM_OPS       3 /* bio 类型数，bio.c 文件创建的线程数组、互斥锁数组和条件变量数组大小就是该值，正是对应这三种任务 */
 
 #endif

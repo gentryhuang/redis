@@ -293,6 +293,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_NUM 7     /* Number of blocked states. */
 
 /* Client request types */
+// 客户端请求类型
 #define PROTO_REQ_INLINE 1
 #define PROTO_REQ_MULTIBULK 2
 
@@ -1314,6 +1315,9 @@ typedef enum childInfoType {
     CHILD_INFO_TYPE_MODULE_COW_SIZE
 } childInfoType;
 
+/**
+ * Redis server 的各种参数初始化配置，都是保存在这个全局变量 server 中的
+ */
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -1329,6 +1333,7 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
+    // 命令表
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -1377,11 +1382,20 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
 
-    // 全局等待写队列（客户端等待写链表）
+    //------------------- IO 线程全局队列 --------------------------/
+
+    /**
+     * 说明：
+     * 要知道，Redis server 在接收到客户端请求和给客户端返回数据的过程中，会根据一定条件，推迟客户端的读写操作，并分别把待读写的客户端保存到这两个列表中。
+     * 然后，Redis server 在每次进入事件循环前，会再把列表中的客户端添加到 io_threads_list 数组中，交给 IO 线程进行处理。
+     */
+
+    // 全局等待写队列（客户端等待写链表 - 记录待写回数据的客户端）
     list *clients_pending_write; /* There is to write or install handler. */
-    // 全局等待读队列（客户端等待读链表）
+    // 全局等待读队列（客户端等待读链表 - 激励待读取数据的客户端）
     list *clients_pending_read;  /* Client has pending read socket buffers. */
 
+    //------------------- IO 线程全局队列 --------------------------/
 
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
@@ -1399,8 +1413,12 @@ struct redisServer {
     int protected_mode;         /* Don't accept external connections. */
     int gopher_enabled;         /* If true the server will reply to gopher
                                    queries. Will still serve RESP2 queries. */
+
+    // io 线程数量
     int io_threads_num;         /* Number of IO threads to use. */
+    // 使用 io 线程读取和解析
     int io_threads_do_reads;    /* Read and parse from IO threads? */
+    // io 线程激活标志
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
 

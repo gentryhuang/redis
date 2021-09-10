@@ -53,6 +53,7 @@ ConnectionType CT_Socket;
 
 /* When a connection is created we must know its type already, but the
  * underlying socket may or may not exist:
+ * 当一个连接被创建时，我们必须知道它的类型，但是底层的套接字可能存在，也可能不存在:
  *
  * - For accepted connections, it exists as we do not model the listen/accept
  *   part; So caller calls connCreateSocket() followed by connAccept().
@@ -75,7 +76,10 @@ ConnectionType CT_Socket;
  */
 
 connection *connCreateSocket() {
+    // 分配连接空间
     connection *conn = zcalloc(sizeof(connection));
+    // 设置类型，读写事件放到这个属性中
+    // 注意 CT_Socket 的初始化
     conn->type = &CT_Socket;
     conn->fd = -1;
 
@@ -85,16 +89,26 @@ connection *connCreateSocket() {
 /* Create a new socket-type connection that is already associated with
  * an accepted connection.
  *
+ * 创建一个新的套接字类型的连接，该连接已经与已接受的连接相关联。
+ *
  * The socket is not ready for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
+ *
+ *在调用connAccept()并调用连接级接受处理程序之前，套接字还没有为I/O做好准备。
  *
  * Callers should use connGetState() and verify the created connection
  * is not in an error state (which is not possible for a socket connection,
  * but could but possible with other protocols).
+ *
+ * 调用者应该使用connGetState()并验证创建的连接是否处于错误状态(对于套接字连接是不可能的，但是对于其他协议是可能的)。
+ *
  */
 connection *connCreateAcceptedSocket(int fd) {
+    // 创建连接
     connection *conn = connCreateSocket();
+    // 关联套接字 fd
     conn->fd = fd;
+    // 设置连接状态
     conn->state = CONN_STATE_ACCEPTING;
     return conn;
 }
@@ -145,6 +159,7 @@ void *connGetPrivateData(connection *conn) {
  */
 
 /* Close the connection and free resources. */
+// 关闭连接，释放资源。
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
         aeDeleteFileEvent(server.el,conn->fd, AE_READABLE | AE_WRITABLE);
@@ -163,6 +178,13 @@ static void connSocketClose(connection *conn) {
     zfree(conn);
 }
 
+/**
+ * 连接写函数
+ * @param conn
+ * @param data
+ * @param data_len
+ * @return
+ */
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
     int ret = write(conn->fd, data, data_len);
     if (ret < 0 && errno != EAGAIN) {
@@ -178,6 +200,13 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
     return ret;
 }
 
+/**
+ * 连接读函数
+ * @param conn
+ * @param buf
+ * @param buf_len
+ * @return
+ */
 static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
     int ret = read(conn->fd, buf, buf_len);
     if (!ret) {
@@ -195,6 +224,12 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
     return ret;
 }
 
+/**
+ * 连接接受函数
+ * @param conn
+ * @param accept_handler
+ * @return
+ */
 static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     int ret = C_OK;
 
@@ -210,6 +245,7 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
 
 /* Register a write handler, to be called when the connection is writable.
  * If NULL, the existing handler is removed.
+ * 注册一个写处理程序，以便在连接可读时调用。如果为NULL，则删除现有的处理程序
  *
  * The barrier flag indicates a write barrier is requested, resulting with
  * CONN_FLAG_WRITE_BARRIER set. This will ensure that the write handler is
@@ -219,11 +255,17 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
 static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     if (func == conn->write_handler) return C_OK;
 
+    // 绑定写处理函数
     conn->write_handler = func;
+
+    // 屏障事件
     if (barrier)
         conn->flags |= CONN_FLAG_WRITE_BARRIER;
+    // 非屏蔽事件
     else
         conn->flags &= ~CONN_FLAG_WRITE_BARRIER;
+
+    // 如果读处理函数为 null ，则移除对应套接字 conn->fd 的读事件
     if (!conn->write_handler)
         aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
     else
@@ -234,13 +276,22 @@ static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc fu
 
 /* Register a read handler, to be called when the connection is readable.
  * If NULL, the existing handler is removed.
+ *
+ * 注册一个读处理程序，以便在连接可读时调用。如果为NULL，则删除现有的处理程序
  */
 static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     if (func == conn->read_handler) return C_OK;
 
+    // 绑定读处理函数
     conn->read_handler = func;
+
+    // 如果写处理函数为 null ，则移除对应套接字 conn->fd 的写事件
     if (!conn->read_handler)
         aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
+
+    // 注册 coon->fd 的写事件
+    // 当写事件触发时，会回调 conn->type->ae_handler，也就是 connSocketEventHandler 。
+    // 注意，不是为读事件直接关联 func 函数，而是关联一个派发器函数  connSocketEventHandler
     else
         if (aeCreateFileEvent(server.el,conn->fd,
                     AE_READABLE,conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
@@ -251,6 +302,14 @@ static const char *connSocketGetLastError(connection *conn) {
     return strerror(conn->last_errno);
 }
 
+/**
+ * connection 相关的事件通过该函数统一调度。可以理解这是个派发器。
+ *
+ * @param el
+ * @param fd
+ * @param clientData
+ * @param mask
+ */
 static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask)
 {
     UNUSED(el);
@@ -345,6 +404,10 @@ static int connSocketGetType(connection *conn) {
     return CONN_TYPE_SOCKET;
 }
 
+/**
+ * connection 中的 ConnectionType *type 的初始化，创建 connection 时需要用到。
+ * 非常重要
+ */
 ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .close = connSocketClose,

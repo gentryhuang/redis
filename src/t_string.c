@@ -110,6 +110,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     // 在条件不符合时报错
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db, key) != NULL) ||
         (flags & OBJ_SET_XX && lookupKeyWrite(c->db, key) == NULL)) {
+        //如果已经存在，则返回空值
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }

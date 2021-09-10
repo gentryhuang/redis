@@ -3317,6 +3317,8 @@ void initServer(void) {
     server.clients_pending_write = listCreate();
     // 初始化客户端等待写链表
     server.clients_pending_read = listCreate();
+
+
     server.clients_timeout_table = raxNew();
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
@@ -3940,6 +3942,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
  * preventCommandReplication(client *c);
  *
  */
+// 调用命令的实现函数，执行命令
 void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
@@ -4186,9 +4189,16 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * processCommand() execute the command or prepare the
  * server for a bulk read from the client.
  *
+ * 这个函数执行时，我们已经读入了一个完整的命令到 Client 里面，这个函数执行该命令，或者服务器准备从客户端中进行一次读取。
+ *
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
- * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
+ * if C_ERR is returned the client was destroyed (i.e. after QUIT).
+ *
+* 如果这个函数返回 1 ，那么表示客户端在执行命令之后仍然存在，
+ * 调用者可以继续执行其他操作。
+ * 否则，如果这个函数返回 0 ，那么表示客户端已经被销毁。
+ */
 int processCommand(client *c) {
     if (!server.lua_timedout) {
         /* Both EXEC and EVAL call call() directly so there should be
@@ -4200,12 +4210,14 @@ int processCommand(client *c) {
         serverAssert(!server.in_eval);
     }
 
+    // 将 Redis 命令替换成 module 中想要替换的命令
     moduleCallCommandFilters(c);
 
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
+    // 特别处理 quit 命令
     if (!strcasecmp(c->argv[0]->ptr, "quit")) {
         addReply(c, shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -4214,7 +4226,10 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+    // 根据命令名称从命令表中查找命令，并进行命令合法性检查，以及命令参数个数检查
+    // 命令表是一个哈希表，它是在 initServerConfig 函数中初始化的
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    // 没找到指定的命令
     if (!c->cmd) {
         sds args = sdsempty();
         int i;
@@ -4224,6 +4239,7 @@ int processCommand(client *c) {
                             (char *) c->argv[0]->ptr, args);
         sdsfree(args);
         return C_OK;
+        // 参数个数错误
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
         rejectCommandFormat(c, "wrong number of arguments for '%s' command",
@@ -4245,6 +4261,8 @@ int processCommand(client *c) {
                                    (c->cmd->proc == execCommand &&
                                     (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
 
+
+    // 检查认证信息
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
     int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
@@ -4289,9 +4307,18 @@ int processCommand(client *c) {
     }
 
     /* If cluster is enabled perform the cluster redirection here.
+     * 如果开启了集群模式，那么在这里进行转向操作。
+     *
      * However we don't perform the redirection if:
+     * 不过，如果有以下情况出现，那么节点不进行转向：
+     *
      * 1) The sender of this command is our master.
-     * 2) The command has no key arguments. */
+     * 命令的发送者是本节点的主节点
+     *
+     * 2) The command has no key arguments.
+     *  命令没有 key 参数
+     *
+     */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -4320,6 +4347,7 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
+    // 如果设置了最大内存，那么检查内存是否超过限制，并做相应的操作
     if (server.maxmemory && !server.lua_timedout) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
         /* performEvictions may flush slave output buffers. This may result
@@ -4358,6 +4386,7 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
+    // 如果这是一个主服务器，并且这个服务器之前执行 BGSAVE 时发生了错误那么不执行写命令
     int deny_write_type = writeCommandsDeniedByDiskError();
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         server.masterhost == NULL &&
@@ -4373,6 +4402,8 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
+    // 如果服务器没有足够多的状态良好服务器
+    // 并且 min-slaves-to-write 选项已打开
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&
@@ -4384,6 +4415,7 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if this is a read only slave. But
      * accept write commands if this is our master. */
+    // 如果这个服务器是一个只读 slave 的话，那么拒绝执行写命令
     if (server.masterhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) &&
         is_write_command) {
@@ -4393,6 +4425,7 @@ int processCommand(client *c) {
 
     /* Only allow a subset of commands in the context of Pub/Sub if the
      * connection is in RESP2 mode. With RESP3 there are no limits. */
+    // 在订阅于发布模式的上下文中，只能执行订阅和退订相关的命令
     if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
@@ -4419,6 +4452,7 @@ int processCommand(client *c) {
 
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
+    // 如果服务器正在载入数据到数据库，那么只执行带有 REDIS_CMD_LOADING 标识的命令，否则将出错
     if (server.loading && is_denyloading_command) {
         rejectCommand(c, shared.loadingerr);
         return C_OK;
@@ -4430,6 +4464,7 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
+    // Lua 脚本超时，只允许执行限定的操作，比如 SHUTDOWN 和 SCRIPT KILL
     if (server.lua_timedout &&
         c->cmd->proc != authCommand &&
         c->cmd->proc != helloCommand &&
@@ -4468,15 +4503,24 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
+    // 在事务上下文中，表明要处理的是 Redis 事务的相关命令，所以它会按照事务的要求，
+    // 除 EXEC 、 DISCARD 、 MULTI 和 WATCH 命令之外，其他所有命令都会被入队到事务队列中
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
         c->cmd->proc != resetCommand) {
+        //将命令入队保存，等待后续一起处理
         queueMultiCommand(c);
         addReply(c, shared.queued);
+
+        // 非事务上下文中
     } else {
+
+        //调用call函数执行命令，它是通过调用命令本身，即redisCommand 结构体中定义的函数指针来完成的
         call(c, CMD_CALL_FULL);
+
         c->woff = server.master_repl_offset;
+        // 处理那些解除了阻塞的键
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
@@ -5792,15 +5836,22 @@ void createPidFile(void) {
     }
 }
 
+/**
+ * 收获进程
+ */
 void daemonize(void) {
     int fd;
 
+    // 调用操作系统的 fork() 函数创建子进程
+    // 如果 fork 函数成功执行，父进程就退出了。当然，如果 fork 函数执行失败了，那么子进程也没有能成功创建，父进程也就退出执行了
     if (fork() != 0) exit(0); /* parent exits */
+    //为子进程创建新的session
     setsid(); /* create a new session */
 
     /* Every output goes to /dev/null. If Redis is daemonized but
      * the 'logfile' is set to 'stdout' in the configuration file
      * it will not log at all. */
+    //将子进程的标准输入、标准输出、标准错误输出重定向到/dev/null中
     if ((fd = open("/dev/null", O_RDWR, 0)) != -1) {
         dup2(fd, STDIN_FILENO);
         dup2(fd, STDOUT_FILENO);
@@ -6576,6 +6627,10 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;
 
     // 5 将服务器设置为守护进程
+    // 说明：
+    // 1 创建子进程，父进程退出，子进程代替原来的父进程继续执行 main 函数
+    // 2 Redis Server 启动后无论是否以守护进程形式运行，都还是一个进程在运行。对于一个进程来说，如果该进程启动后没有创建新的线程，那么这个进程的工作任务默认就是由一个线程来执行的，
+    //   而这个线程可以称为主线程
     if (background) daemonize();
 
     serverLog(LL_WARNING, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
@@ -6643,7 +6698,7 @@ int main(int argc, char **argv) {
         ACLLoadUsersAtStartup();
 
         // 8 服务器最后的初始化
-        // 主要包括 bio 和 io 线程的初始化工作 （重要）
+        // 主要包括 bio 和 io 线程的初始化工作 （非常重要）
         InitServerLast();
 
         // 9 从 AOF 文件或者 RDB 文件中载入数据
