@@ -707,7 +707,7 @@ typedef struct redisObject {
     unsigned encoding: 4; // 4bits
 
 
-    // 1. 当该属性用于内存淘汰 LRU 算法时，作为计时时钟，即时间戳
+    // 1. 当该属性用于内存淘汰 LRU 算法时，作为计时时钟，即记录数据每次访问的时间戳
     // 2. 当该属性用于内存淘汰 LFU 算法时，作为数据。低 8 位表示该对象访问的次数，高 16 位表示访问的时间戳
     unsigned lru: LRU_BITS;  /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency

@@ -3695,6 +3695,7 @@ void processEventsWhileBlocked(void) {
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 
 // 保存线程互斥锁
+// 互斥量
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
 
 // 保存每个 IO 线程处理的客户端个数
@@ -3849,7 +3850,8 @@ void initThreadedIO(void) {
         /* Things we do only for the additional threads. 只对 io 线程做的事情 */
         pthread_t tid;
 
-        // 初始化io_threads_mutex数组
+        // 初始化io_threads_mutex数组，即给数组中的每个互斥量进行初始化
+        // 这里通过调用 pthread_mutex_init 方法初始互斥量
         pthread_mutex_init(&io_threads_mutex[i], NULL);
 
         // 初始化io_threads_pending数组
