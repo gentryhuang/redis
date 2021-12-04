@@ -1214,6 +1214,20 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
  * When the function returns C_ERR and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the value of errno just after the I/O
  * error. */
+/**
+ * 最终生成 RDB 文件函数
+ *
+ * RDB 文件（是一个二进制文件）组成：
+ * - 文件头：保存了 Redis 的魔数、RDB 版本、Redis 版本、RDB 文件创建时间、键值对占用的内存大小
+ * - 文件数据部分：保存了 Redis 数据库实际的所有键值对
+ * - 文件尾：保存 RDB 文件的结束标识符和整个文件的校验值（用于加载 RDB 文件后检查文件是否被篡改过）
+ *
+ * @param rdb
+ * @param error
+ * @param rdbflags
+ * @param rsi
+ * @return
+ */
 int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1227,8 +1241,12 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
+
+    // 1 生成魔数，并将其写入 RDB 文件
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
+
+    // 2 将与 Redis server 相关的一些属性以键值对的形式写入 RDB 文件头
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
@@ -1330,13 +1348,24 @@ int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
     startSaving(RDBFLAGS_REPLICATION);
+    // 随机生成40字节的16进制字符串，保存在eofmark中，宏定义RDB_EOF_MARK_SIZE的值为40
     getRandomHexChars(eofmark,RDB_EOF_MARK_SIZE);
+
     if (error) *error = 0;
+
+    //写入$EOF
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
+    //写入40字节的16进制字符串eofmark
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
+    // 写入\r\n
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
+
+    // 生成RDB内容
     if (rdbSaveRio(rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
+
+    // 再次写入40字节的16进制字符串eofmark
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
+
     stopSaving(1);
     return C_OK;
 
@@ -1374,6 +1403,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     if (server.rdb_save_incremental_fsync)
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
 
+    // 生成 RDB 内容
     if (rdbSaveRio(&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
@@ -1416,25 +1446,38 @@ werr:
     return C_ERR;
 }
 
+/**
+ * Redis server 使用后台子进程方式，在本地磁盘创建 RDB 文件的入口函数
+ * @param filename
+ * @param rsi
+ * @return
+ */
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 
+    // 判断是否已经存在子进程
     if (hasActiveChildProcess()) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
 
+    // 子进程的代码执行分支
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
 
         /* Child */
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
+
+        // 调用 rdbSave 函数创建 RDB 文件
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
+
+        // 子进程退出
         exitFromChild((retval == C_OK) ? 0 : 1);
+
     } else {
         /* Parent */
         if (childpid == -1) {
@@ -2798,6 +2841,9 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
+        // rdbSaveToSlavesSockets 函数是通过网络以字节流的形式，直接发送 RDB 文件的二进制数据给从节点
+        // 了让从节点能够识别用来同步数据的 RDB 内容，rdbSaveToSlavesSockets 函数调用 rdbSaveRioWithEOFMark 函数，
+        // 在 RDB 二进制数据的前后加上了标识字符串
         retval = rdbSaveRioWithEOFMark(&rdb,NULL,rsi);
         if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;

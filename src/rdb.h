@@ -127,39 +127,110 @@
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
 
+/**
+ * 说明：
+ * 1 RDB 文件创建的三个时机：save 命令、bgsave 命令以及主从复制
+ * 2 Redis 在执行 flushall 命令（对应 flushallCommand 函数）以及正常关闭时（对应 prepareForShutdown 函数），会创建 RDB 文件
+ */
+
 int rdbSaveType(rio *rdb, unsigned char type);
+
 int rdbLoadType(rio *rdb);
+
 int rdbSaveTime(rio *rdb, time_t t);
+
 time_t rdbLoadTime(rio *rdb);
+
 int rdbSaveLen(rio *rdb, uint64_t len);
+
 int rdbSaveMillisecondTime(rio *rdb, long long t);
+
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver);
+
 uint64_t rdbLoadLen(rio *rdb, int *isencoded);
+
 int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
+
 int rdbSaveObjectType(rio *rdb, robj *o);
+
 int rdbLoadObjectType(rio *rdb);
+
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags);
+
+/**
+ * Redis server 使用后台子进程方式，在本地磁盘创建 RDB 文件的入口函数
+ * 说明：
+ * 1 它对应了 Redis 的 bgsave 命令，会在 bgsave 命令的实现函数 bgsaveCommand 中被调用。
+ * 2 该函数会调用 fork 创建一个子进程，让子进程调用 rdbSave 函数来继续创建 RDB 文件，而父进程也就是主线程本身可以继续处理客户端请求
+ * 特别说明：
+ * 1 该函数除了在执行  bgsave 命令时被调用，当主从复制采用落盘文件方式传输 RDB 时，它会被 startBgsaveForReplication 函数调用。
+ * 2 Redis server 运行时的周期性执行函数 serverCron（在server.c文件中），也会调用 rdbSaveBackground 函数来创建 RDB 文件
+ * @param filename
+ * @param rsi
+ * @return
+ */
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi);
+
+/**
+ * Redis server 在采用不落盘方式传输 RDB 文件进行主从复制时，创建 RDB 文件的入口函数。
+ * 说明：
+ * 1 它会被 startBgsaveForReplication 函数调用（在replication.c文件中）。
+ * 2 startBgsaveForReplication 函数会被 replication.c 文件中的 syncCommand 函数和 replicationCron 函数调用，
+ *   这对应了 Redis server 执行主从复制命令，以及周期性检测主从复制状态时触发 RDB 生成。
+ * 3 和 rdbSaveBackground 函数类似，rdbSaveToSlavesSockets 函数也是通过 fork 创建子进程，让子进程生成 RDB。
+ *    不过和 rdbSaveBackground 函数不同的是，rdbSaveToSlavesSockets 函数是通过网络以字节流的形式，直接发送 RDB 文件的二进制数据给从节点。
+ * @param rsi
+ * @return
+ */
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi);
+
 void rdbRemoveTempFile(pid_t childpid, int from_signal);
+
+/**
+ * Redis server 在本地磁盘创建 RDB 文件的入口函数
+ * 说明：
+ * 1 它对应了 Redis 的 save 命令，会在 save 命令的实现函数 saveCommand 中被调用。
+ * 2 rdbSave 函数最终会调用 rdbSaveRio 函数来实际创建 RDB 文件
+ * @param filename
+ * @param rsi
+ * @return
+ */
 int rdbSave(char *filename, rdbSaveInfo *rsi);
+
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key);
+
 size_t rdbSavedObjectLen(robj *o, robj *key);
+
 robj *rdbLoadObject(int type, rio *rdb, sds key);
+
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
+
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime);
+
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
+
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename);
+
 robj *rdbLoadStringObject(rio *rdb);
+
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj);
+
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
+
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr);
+
 int rdbSaveBinaryDoubleValue(rio *rdb, double val);
+
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
+
 int rdbSaveBinaryFloatValue(rio *rdb, float val);
+
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
+
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi);
+
 int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
+
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif

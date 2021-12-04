@@ -100,6 +100,16 @@ typedef struct _rio rio;
  * actual implementation of read / write / tell, and will update the checksum
  * if needed. */
 
+/**
+ * RDB 文件内容的最终写入函数，它负责根据要写入数据的长度，把待写入缓冲区中的内容写入 RDB
+ * 注意：
+ *  RDB 文件生成过程中，会有不同的函数负责写入不同部分的内容，不过这些函数最终都还是调用 rioWrite 函数，来完成数据的实际写入的
+ *
+ * @param r
+ * @param buf
+ * @param len
+ * @return
+ */
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
     if (r->flags & RIO_FLAG_WRITE_ERROR) return 0;
     while (len) {

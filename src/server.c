@@ -2831,17 +2831,16 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.master_repl_offset = 0; // 当前累计写入buf的总偏移量，它永远递增
+
+    server.master_repl_offset = 0;
 
     /* Replication partial resync backlog */
     // 5 初始化 PSYNC 命令所使用的 backlog
     server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0; // 当前的有效buf长度
-    server.repl_backlog_idx = 0; // backlog 中最新写入的位置
-    server.repl_backlog_off = 0; // 指向当前有效buf的起始偏移量
+    server.repl_backlog_histlen = 0;
+    server.repl_backlog_idx = 0;
+    server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
-
-    // 三者关系： repl_backlog_off = master_repl_offset - repl_backlog_histlen + 1
 
     /* Failover related */
     server.failover_end_time = 0;

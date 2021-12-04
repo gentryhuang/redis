@@ -1628,20 +1628,62 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
-    /* Replication (master) */
+
+
+    /**------------- Replication (master) 复制相关 --------------------*/
     char replid[CONFIG_RUN_ID_SIZE + 1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE + 1]; /* replid inherited from master*/
+
+    /**
+     * 当前累计写入循环缓冲区的总偏移量，它永远递增。
+     */
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
+
+    /*
+     * 循环缓冲区关键属性说明：
+     *
+     * 循环缓冲区本身被设计为了一个字符类型的数组 repl_backlog ，然后 Redis 设计了以下的变量来描述循环缓冲区的状态，包括：
+     *
+     * - repl_backlog_size: 记录的是循环缓冲区本身的大小。这个值也对应了 redis.conf 配置文件中的 repl-backlog-size 配置项。
+     * - master_repl_offset: 当前累计写入循环缓冲区的总偏移量，它永远递增。
+     * - repl_backlog_histlen: 记录的是循环缓冲区当前累积的数据长度，是循环缓冲区当前保存的实际数据大小，这个值不会超过缓冲区的大小。
+     * - repl_backlog_idx: 记录的是循环缓冲区的写指针，即循环缓冲区接下来写数据时应该写入的位置
+     * - repl_backlog_off: 记录循环缓冲区中最早保存的数据的首字节在全局范围内的偏移量。
+     *                     要注意的是，因为循环缓冲区会被重复使用，所以一旦缓冲区写满后，又开始从头写数据时，缓冲区中的旧数据会被覆盖。
+     *                     因此，这个值就记录了仍然保存在缓冲区中，又是最早写入的数据的首字节，在全局范围内的偏移量。
+     *
+     * 三者关系： repl_backlog_off = master_repl_offset - repl_backlog_histlen + 1
+     */
+
+    /**
+     * 基于字符数组的循环缓冲区
+     */
     char *repl_backlog;             /* Replication backlog for partial syncs */
+    /**
+     * 循环缓冲区大小
+     */
     long long repl_backlog_size;    /* Backlog circular buffer size */
+    /**
+     * 循环缓冲区中当前累积的数据的长度，即循环缓冲区当前真实的数据大小，该值不会超过循环缓冲区大小 repl_backlog_size
+     */
     long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
-    long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
+    /**
+     * 循环缓冲区的写指针位置，即下一个字节将要写入的位置
+     */
+    long long repl_backlog_idx;     /* Backlog circular buffer current offset,that is the next byte will'll write to.*/
+    /**
+     * 仍在循环缓冲区中的最早保存的数据的首字节在全局范围内的偏移量。
+     * todo 注意：这个是针对新写入的数据而言，旧数据在全局范围内的偏移量。怎么订阅最早的旧数据：
+     * - 当循环缓冲区没有被覆盖重写的时候，最早的旧数据就是循环缓冲区头部数据
+     * - 当循环缓冲区写满过，被覆盖重写了，那么最早的数据就是从左到右第一个还没有被覆盖的数据。
+     * todo 一句话：第一个没有还没有被覆盖的数据就是最早数据
+     */
+    long long repl_backlog_off;     /* Replication "master offset" of first byte in the replication backlog buffer.*/
+
+
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
