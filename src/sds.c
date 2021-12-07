@@ -41,6 +41,11 @@
 
 const char *SDS_NOINIT = "SDS_NOINIT";
 
+/**
+ * 计算 type 对应的 SDS 结构体的元数据大小
+ * @param type
+ * @return
+ */
 static inline int sdsHdrSize(char type) {
     switch (type & SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -57,6 +62,11 @@ static inline int sdsHdrSize(char type) {
     return 0;
 }
 
+/**
+ * 根据传入的表示 SDS 字符数组长度，计算出对应的 SDS 的类型
+ * @param string_size
+ * @return
+ */
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1 << 5)
         return SDS_TYPE_5;
@@ -73,6 +83,12 @@ static inline char sdsReqType(size_t string_size) {
 #endif
 }
 
+/**
+ * 根据 SDS 类型，计算出对应 SDS 能表示的字符数组长度。
+ * todo 注意，这里 -1 是去掉数组最后一位 \0
+ * @param type
+ * @return
+ */
 static inline size_t sdsTypeMaxSize(char type) {
     if (type == SDS_TYPE_5)
         return (1 << 5) - 1;
@@ -103,7 +119,8 @@ static inline size_t sdsTypeMaxSize(char type) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header.
- * 字符串总是以空（\0）结束（所有的SDS字符串都是），可以使用printf()打印字符串，因为在字符串的末尾有一个隐式的\0。然而，字符串是二进制安全的，可以在中间包含\0字符，因为长度存储在sds头中。
+ * 字符串总是以空（\0）结束（所有的SDS字符串都是），可以使用printf()打印字符串，因为在字符串的末尾有一个隐式的\0。
+ * 然而，字符串是二进制安全的，可以在中间包含\0字符，因为长度存储在sds头中。
  *
  **/
 /**
@@ -115,9 +132,11 @@ static inline size_t sdsTypeMaxSize(char type) {
  * @return
  */
 sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
+
     // 指向 SDS 结构体的指针
     void *sh;
-    //sds类型变量，即char*字符数组
+
+    // sds 类型变量，即 char* 字符数组
     sds s;
 
     // 根据初始化字符串长度选择对应类型的 sds
@@ -128,6 +147,7 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
 
     //  type 对应的 SDS 结构体中元数据的长度
+    // todo hdrlen 是SDS结构体中元数据的长度
     int hdrlen = sdsHdrSize(type);
 
     unsigned char *fp; /* flags pointer. */
@@ -135,8 +155,8 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
 
     assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
 
-    // 是否尝试 malloc
-    //新建SDS结构，并分配内存空间
+    // 根据是否尝试 malloc，新建SDS结构，并分配内存空间
+    // todo sh 指向当前新建的 SDS 结构，即 sh指向SDS结构体起始位置
     sh = trymalloc ?
          s_trymalloc_usable(hdrlen + initlen + 1, &usable) :
          s_malloc_usable(hdrlen + initlen + 1, &usable);
@@ -150,19 +170,25 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     else if (!init)
         memset(sh, 0, hdrlen + initlen + 1);
 
-    //sds类型变量指向SDS结构体中的buf数组，sh指向SDS结构体起始位置，hdrlen是SDS结构体中元数据的长度
+    // sh + hdrlen 表示将指向 SDS 结构的指针移动到 SDS 结构体中的 buf
+    // todo 把 SDS 结构体中的数组 buf[] 赋给 sds 类型变量
     s = (char *) sh + hdrlen;
+
     fp = ((unsigned char *) s) - 1;
+
+    // 防御性编程，防止超过当前 SDS 能表示的字符数组长度
     usable = usable - hdrlen - 1;
     if (usable > sdsTypeMaxSize(type))
         usable = sdsTypeMaxSize(type);
 
     // 根据类型，为 SDS 结构体属性赋值
     switch (type) {
+        // 已废弃
         case SDS_TYPE_5: {
             *fp = type | (initlen << SDS_TYPE_BITS);
             break;
         }
+            // 根据不同的 SDS 类型，初始化 SDS 结构体属性
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8, s);
             sh->len = initlen;
@@ -200,7 +226,7 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     // 以 \0 结尾，表示字符串结束
     s[initlen] = '\0';
 
-    // 返回 SDS
+    // 返回 buf 部分，而不是整个 SDS 结构
     return s;
 }
 
@@ -230,7 +256,7 @@ sds sdstrynewlen(const void *init, size_t initlen) {
 /* Create an empty (zero length) sds string. Even in this case the string
  * always has an implicit null term.
  *
- * 创建并返回一个只保存空字符串的 SDS
+ * 创建并返回一个只保存空字符串的 sds
  *
  * 返回值：创建成功返回 sdshdr 相对应的 sds，创建失败返回 NULL
  */
@@ -246,7 +272,11 @@ sds sdsempty(void) {
  * @return  创建成功返回 sdshdr 相对应的 sds, 创建失败返回 NULL
  */
 sds sdsnew(const char *init) {
+
+    // 计算字符串的长度
     size_t initlen = (init == NULL) ? 0 : strlen(init);
+
+    // 创建 SDS
     return sdsnewlen(init, initlen);
 }
 
@@ -262,7 +292,7 @@ sds sdsdup(const sds s) {
 }
 
 /*
- * 释放给定的 SDS
+ * 释放给定的 sds
  *
  * @param s
  */
@@ -283,11 +313,13 @@ void sdsupdatelen(sds s) {
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
 /*
- * 在不释放 SDS 的字符串空间的情况下，重置 SDS 所保存的字符串为空字符串
+ * 在不释放 SDS 的字符串空间的情况下，重置 SDS 所保存的字符串为空字符串。
+ * 目的：避免下次使用带来的内存开销
  *
  * @param s
  */
 void sdsclear(sds s) {
+    // 只是修改len为0以及buf为'\0'，并不会实际释放内存
     sdssetlen(s, 0);
     s[0] = '\0';
 }
@@ -302,64 +334,113 @@ void sdsclear(sds s) {
  * 对 SDS 中 buf 的长度进行扩展，确保在函数执行之后，buf 至少会有 addlen + 1 长度的空余空间。
  * （额外的 1 字节是为 \0 准备的）
  *
- * @param s
- * @param addlen
+ * @param s buf
+ * @param addlen 预计新增的字符串长度
  * @return
  */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     void *sh, *newsh;
 
-    // 获取 s 目前可用的空间长度
+    // 1 获取 sds 目前可用的空间长度
     size_t avail = sdsavail(s);
+
     size_t len, newlen;
+
+    // 计算 s 对应的 SDS 类型（在创建 SDS 时，内部属性 buf[-1] 保存的就是 SDS 类型）
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen;
     size_t usable;
 
-    /* Return ASAP if there is enough space left. */
-    // s 目前的空余空间已经足够，无须再进行扩展，直接返回
+    // 2 sds 目前的剩余空间已经足够，无须再进行扩展，直接返回
     if (avail >= addlen) return s;
 
-    // 获取 s 目前已占用空间的长度
+    /*-- 执行到这里，说明 sds 剩余空间不足，需要进行扩容 ----*/
+
+    // 3 获取 sds 目前已占用空间的长度
     len = sdslen(s);
+
+    // 4 获取 sds 所在的 SDS 结构体
     sh = (char *) s - sdsHdrSize(oldtype);
 
-    //
+    // 5 获取新的长度，sds 当前长度 + addlen
     newlen = (len + addlen);
     assert(newlen > len);   /* Catch size_t overflow */
+
+    // 6 判断是否需要扩容，以实现预分配
+    // todo 小于 1MB 翻倍扩容，大于 1MB 按 1MB 扩容
     if (newlen < SDS_MAX_PREALLOC)
         newlen *= 2;
     else
         newlen += SDS_MAX_PREALLOC;
 
+    // 7 根据预扩容的大小，获取对应类型的 SDS
+    // todo 为了有效节省内存空间，使用不同的 SDS 类型保存相应大小的数据
     type = sdsReqType(newlen);
 
+    // SDS_TYPE_5 已经废弃，如果是 SDS_TYPE_5 ，则默认使用 SDS_TYPE_8
     /* Don't use type 5: the user is appending to the string and type 5 is
      * not able to remember empty space, so sdsMakeRoomFor() must be called
      * at every appending operation. */
     if (type == SDS_TYPE_5) type = SDS_TYPE_8;
 
+    /*---- 确定了 SDS 类型，就可以进行空间分配了 --------*/
+
+    // 8 获取结构头的大小，即 SDS 结构体的元数据大小
     hdrlen = sdsHdrSize(type);
     assert(hdrlen + newlen + 1 > len);  /* Catch size_t overflow */
+
+    // 8.1 如果 SDS 类型还是之前的类型
     if (oldtype == type) {
+
+        // 结构头大小不变，无需要将字符串向前移动，即无需数据拷贝
+        // 新的指向 SDS 指针
         newsh = s_realloc_usable(sh, hdrlen + newlen + 1, &usable);
+
+        // 内容不足，分配失败
         if (newsh == NULL) return NULL;
+
+        // 获取 SDS 中的 char buf[]
         s = (char *) newsh + hdrlen;
+
+        // 8.2 如果 SDS 类型是新的类型
     } else {
-        /* Since the header size changes, need to move the string forward,
-         * and can't use realloc */
+
+        // 由于结构头大小改变，需要将字符串向前移动，不能使用 realloc
+        // 新的指向 SDS 指针
+        /* Since the header size changes, need to move the string forward,and can't use realloc */
         newsh = s_malloc_usable(hdrlen + newlen + 1, &usable);
+
+        // 内容不足，分配失败
         if (newsh == NULL) return NULL;
+
+        // 将原来的字符串数据拷贝到新的 SDS 中的 buf 中
         memcpy((char *) newsh + hdrlen, s, len + 1);
+
+        // 释放原来的 SDS 结构体
         s_free(sh);
+
+        // 获取 SDS 中的 char buf[]
         s = (char *) newsh + hdrlen;
+
+        // todo 标记 buf 属于哪种 SDS 类型
         s[-1] = type;
+
+        // 设置 sds 实际长度
         sdssetlen(s, len);
     }
+
+    // 9 获取 SDS 结构体最大可存储字符串的长度，这里 -1 是包括数组最后一位 \0
     usable = usable - hdrlen - 1;
+
+    // 防御性编程
     if (usable > sdsTypeMaxSize(type))
         usable = sdsTypeMaxSize(type);
+
+    // 设置 sds 分配的长度，注意，这里并不是直接使用扩容后的 newlen ,而是使用计算得来。
+    // 注意，分配的长度不包括 \0 占用的字符
     sdssetalloc(s, usable);
+
+    // 返回 sds
     return s;
 }
 
@@ -514,6 +595,14 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+/**
+ * 将长度为 len 的字符串 t 追加到 sds 的字符串末尾
+ *
+ * @param s 目标字符串
+ * @param t 源字符串
+ * @param len 要追加的字符串长度
+ * @return 追加成功返回新 sds ，失败返回 NULL
+ */
 sds sdscatlen(sds s, const void *t, size_t len) {
     // 获取 s 的长度
     size_t curlen = sdslen(s);

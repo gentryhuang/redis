@@ -109,7 +109,8 @@ typedef struct dictType {
  * 哈希表
  */
 typedef struct dictht {
-    // 哈希表数组
+
+    // 哈希表数组，数组中的每个元素是一个指向哈希项（dictEntry）的指针
     dictEntry **table;
 
     // 哈希表大小

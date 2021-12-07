@@ -35,8 +35,10 @@
 
 /*
  * 最大预分配长度
+ * 1M = 1024KB = 1024 * 1024Byte
  */
 #define SDS_MAX_PREALLOC (1024*1024)
+
 extern const char *SDS_NOINIT;
 
 #include <sys/types.h>
@@ -44,8 +46,20 @@ extern const char *SDS_NOINIT;
 #include <stdint.h>
 
 /*
- * 类型别名
- * 说明：SDS 本质还是字符数组，只是在字符数组基础上增加了额外的元数据
+ * 类型别名，用于指向 sdshdr 的 buf 属性。约定：在 Redis 中出现 sds 表示的是 SDS 结构体中的 char buf[]
+ *
+ * 1 todo 这里指的是 sdshdr 中的 buf[] 字符数组，而非整个 SDS 结构体
+ * 2 todo 要使用 SDS 结构体，对 sds 进行地址减运算即可得到指向 SDS 结构体的指针
+ *
+ * todo 说明：SDS 本质还是字符数组，只是在字符数组基础上增加了额外的元数据。字符串数据存放在 SDS 结构体的 buf[] 中，表示 buf[] 状态的数据是 SDS 中的元数据。
+ *
+ * 优秀设计：
+ *
+ * SDS 有一个很优秀的设计是对外和char*保持一致，这样外部就可以像使用 char* 一样来使用 SDS 了。
+ * 同时，在使用 SDS 相关函数操作时又可以发挥 SDS 的特性，因为 sds 和 sds的Header 可以通过偏移量相互获取到，知道任意一个就能知道另一个。
+ * - 获取 SDS 结构体的元数据大小：  int hdrlen = sizeof(struct sdshdrN)
+ * - 根据 sds 获取 sds的Header:  void *sh = sds - hdrlen
+ * - 根据 sds的Header 获取 sds:  sds = (char*)sh + hdrlen
  */
 typedef char *sds;
 
@@ -67,7 +81,7 @@ struct __attribute__ ((__packed__)) sdshdr5 {
 };
 
 /**
- * 结构说明：
+ * 结构说明（sds 对应的 Header，是去掉 buf[] 存储数据后的结构体长度）：
  * 1 uint8_t 是 8 位无符号整型，会占用 1 字节的内存空间。其它的类推。
  * 2 当字符串类型是 sdshdr8 时，它能表示的字符数组长度（包括数组最后一位\0）不会超过 256 字节（2 的 8 次方等于 256）。其它的类推
  * 3 SDS 之所以设计不同的结构头（即不同类型），是为了能灵活保存不同大小的字符串，从而有效节省内存空间。因为在保存不同大小的字符串时，
@@ -75,6 +89,7 @@ struct __attribute__ ((__packed__)) sdshdr5 {
  * 4 除了设计不同类型的结构头，Redis 在编程上还使用了专门的编译优化来节省内存空间。
  *   如 __attribute__ ((__packed__))的作用就是告诉编译器，在编译 sdshdr8 结构时，不要使用字节对齐的方式，而是采用紧凑的方式分配内存，这样一来，结构体实际占用多少内存空间，编译器就分配多少空间。
  *   这是因为在默认情况下，编译器会按照 8 字节对齐的方式，给变量分配内存。也就是说，即使一个变量的大小不到 8 个字节，编译器也会给它分配 8 个字节。
+ * 5  __attribute__ ((__packed__)) 除了节省内存空间外，还有一个很精妙的设计就是在编译之后，sds 可以和 sds 所在的 Header 进行相互查找，这是 SDS 设计的灵魂。
  */
 struct __attribute__ ((__packed__)) sdshdr8 {
     // 字符数组现有长度。 8 位无符号整型，占用 1 字节的内存空间
@@ -112,12 +127,16 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_64 4
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
+
+/**
+ * 获取 sds 对应的 SDS 结构体，一键让 sds 回到指针初始位置
+ */
 #define SDS_HDR_VAR(T, s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T, s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
 /*
- * 返回 sds 实际保存的字符串的长度
+ * 返回 sds 实际保存的字符串的长度，而这个长度记录在对应 SDS 结构体中，因此需要先通过 sds 得到指向 SDS 的指针。
  *
  * T = O(1)
  */
