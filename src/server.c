@@ -1576,7 +1576,7 @@ dictType replScriptCacheDictType = {
 };
 
 /**
- * 是否需要调整大小
+ * 是否需要调整大小，即是否需要收缩
  * @param dict
  * @return
  */
@@ -1589,8 +1589,8 @@ int htNeedsResize(dict *dict) {
     // 字典 dict 中两个哈希表已有元素总和
     used = dictSize(dict);
 
-    // size > 4 && used * 100 /size < 10
-    // 最小哈希表填充10%
+    // size > 4 && used * 100 /size < 10（used/size < 0.1）
+    // 最小哈希表填充 10% ，低于该值需要进行收缩
     return (size > DICT_HT_INITIAL_SIZE &&
             (used * 100 / size < HASHTABLE_MIN_FILL));
 }
