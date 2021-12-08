@@ -1575,11 +1575,22 @@ dictType replScriptCacheDictType = {
         NULL                        /* allow to expand */
 };
 
+/**
+ * 是否需要调整大小
+ * @param dict
+ * @return
+ */
 int htNeedsResize(dict *dict) {
     long long size, used;
 
+    // 字典 dict 中两个哈希表的大小
     size = dictSlots(dict);
+
+    // 字典 dict 中两个哈希表已有元素总和
     used = dictSize(dict);
+
+    // size > 4 && used * 100 /size < 10
+    // 最小哈希表填充10%
     return (size > DICT_HT_INITIAL_SIZE &&
             (used * 100 / size < HASHTABLE_MIN_FILL));
 }
@@ -1589,6 +1600,8 @@ int htNeedsResize(dict *dict) {
 void tryResizeHashTables(int dbid) {
     if (htNeedsResize(server.db[dbid].dict))
         dictResize(server.db[dbid].dict);
+
+
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
 }
@@ -1932,6 +1945,8 @@ void databasesCron(void) {
          * cron loop iteration. */
         static unsigned int resize_db = 0;
         static unsigned int rehash_db = 0;
+
+        // 默认 16 个 db
         int dbs_per_call = CRON_DBS_PER_CALL;
         int j;
 
@@ -1941,14 +1956,22 @@ void databasesCron(void) {
         /* Resize */
         // 调整字典的大小
         for (j = 0; j < dbs_per_call; j++) {
+            // 尝试调整 server 的 db 的字典（数据字典 和 过期时间），触发条件是：
+            // 字典的两个哈希表的填充 < 10%，那么就需要触发调整字典的大小
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
         }
 
         /* Rehash */
-        // 对字典进行渐进式 rehash
+        // 对字典进行渐进式 rehash。
+        // 注意，是从 0 号 db 的字典开始，尝试成功 rehash 一个 db 的字典。
+        // 为了防止服务器长期没有执行命令的话，数据库字典的 rehash 就可能一直没办法完成
         if (server.activerehashing) {
+
+            // 遍历 Server 的 16 个DB
             for (j = 0; j < dbs_per_call; j++) {
+
+                // 没有对 rehash_db 进行主动 rehash，会对后续的 DB 进行 rehash 。否则结束。
                 int work_done = incrementallyRehash(rehash_db);
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
@@ -2273,6 +2296,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
     /* Just for the sake of defensive programming, to avoid forgeting to
      * call this function when need. */
+    // 设置是否可以进行 rehash 的标志
     updateDictResizePolicy();
 
 

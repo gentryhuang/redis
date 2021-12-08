@@ -5,32 +5,11 @@
  * tables of power of two in size are used, collisions are handled by
  * chaining. See the source code for more information... :)
  *
- * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
- * All rights reserved.
+ * 这个文件实现了一个内存哈希表，它支持插入、删除、替换、查找和获取随机元素等操作。
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * todo 哈希表会自动在表的大小的二次方进行调整
  *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * 键的冲突通过链表来解决。
  */
 
 #ifndef __DICT_H
@@ -107,6 +86,8 @@ typedef struct dictType {
  * implement incremental rehashing, for the old to the new table. */
 /**
  * 哈希表
+ *
+ * 每个字典都使用两个哈希表，从而实现渐进式 rehash
  */
 typedef struct dictht {
 
@@ -122,6 +103,7 @@ typedef struct dictht {
 
     // 哈希表已有元素数量
     unsigned long used;
+
 } dictht;
 
 /**
@@ -135,7 +117,7 @@ typedef struct dict {
     // 私有数据
     void *privdata;
 
-    // 哈希表（2个），交替使用，用于 rehash 操作
+    // 哈希表（2个），用于 rehash 操作时交替保存数据
     dictht ht[2];
 
     // Hash 表是否在进行 rehash 的标识，-1 表示没有进行rehash
