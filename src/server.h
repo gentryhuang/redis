@@ -701,14 +701,17 @@ typedef struct RedisModuleDigest {
 typedef struct redisObject {
 
     // 当前对象使用的数据类型，如 string、list 等 。也称为对象的类型。
+    // 4 个 bits
     unsigned type: 4;// 4bits
 
     // 内部编码类型，代表当前对象底层采用哪种数据结构实现（数据类型的底层实现）
+    // 4 个 bits
     unsigned encoding: 4; // 4bits
 
 
     // 1. 当该属性用于内存淘汰 LRU 算法时，作为计时时钟，即记录数据每次访问的时间戳
     // 2. 当该属性用于内存淘汰 LFU 算法时，作为数据。低 8 位表示该对象访问的次数，高 16 位表示访问的时间戳
+    // LRU_BITS 为 24 个 bits
     unsigned lru: LRU_BITS;  /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time).
@@ -717,10 +720,12 @@ typedef struct redisObject {
                             */
 
     // 引用计算器，记录当前对象被引用的次数，当该值为 0 时，可以安全回收当前对象空间。
+    // 4 个字节
     int refcount;
 
     // 数据指针
     // 如果是整数，直接存储数据；否则指向对应数据结构所在的内存地址
+    // 8 个字节
     void *ptr;
 
 } robj;
