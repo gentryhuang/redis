@@ -32,15 +32,21 @@
 #define __INTSET_H
 #include <stdint.h>
 
+/*
+ * intset 结构定义
+ */
 typedef struct intset {
     // 编码方式
+    // contents 数组的真正类型取决于编码方式
     uint32_t encoding;
 
     // 数组包含元素个数
     uint32_t length;
 
     // int8_t 类型的整数数组
-    // 从内存使用的角度来看，整数数组就是一块连续内存空间，所以这样就避免了内存碎片，并提升了内存使用效率
+    // 1 用于记录数据，具体类型是通过 encoding 决定的
+    // 2 从内存使用的角度来看，整数数组就是一块连续内存空间，这样就避免了内存碎片，并提升了内存使用效率
+    // 3 定位的时候，对数组地址进行操作，不是直接根据索引
     int8_t contents[];
 } intset;
 

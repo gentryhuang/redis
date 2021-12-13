@@ -446,7 +446,7 @@ typedef struct zlentry {
                                     For example strings have a 1, 2 or 5 bytes
                                     header. Integers always use a single byte.*/
 
-    // 当前项的长度（数据）
+    // 当前项的长度（数据长度）
     unsigned int len;            /* Bytes used to represent the actual entry.
                                     For strings this is just the string length
                                     while for integers it is 1, 2, 3, 4, 8 or
@@ -1078,8 +1078,11 @@ unsigned char *ziplistNew(void) {
     unsigned char *zl = zmalloc(bytes);
 
     // 3 初始化 ziplist 属性
+    // 3.1 zlbytes 记录 ziplist 存储的总字节大小
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes); // zlbytes
+    // 3.2 zltail 记录到尾节点的偏移量
     ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE); // zltail
+    // 3.3 zllen 记录压缩列表中列表项多少
     ZIPLIST_LENGTH(zl) = 0; // zlen
 
     // 4 将列表尾设置为 ZIP_END，表示列表结束
