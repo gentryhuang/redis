@@ -1149,25 +1149,67 @@ struct sharedObjectsStruct {
     sds minstring, maxstring;
 };
 
-/* ZSETs use a specialized version of Skiplists */
+/* ZSETs use a specialized version of Skiplists
+ *
+ * 跳表节点
+ *
+ * 说明：
+ * 1 zset 既要保存元素，也要保存元素的权重，对应到跳表节点的结构中就是 ele、score
+ * 2 为了便于从跳表的尾节点进行倒序查找，每个跳表节点中还保存了一个向后指针 *backward ，用于指向该节点的前一个节点
+ * 3 因为跳表是一个多层的有序链表，每一层也是由多个结点通过指针连接起来的。因此在跳表结点的结构定义中，还包含了一个 zskiplistLevel 结构体类型的 level 数组。
+ *   level 数组中的每一个元素对应了一个 zskiplistLevel 结构体，也对应了跳表的一层。
+ * 4 zskiplistLevel 结构体定义了一个指向下一结点的前向指针（*forward），这就使得结点可以在某一层上和后续结点连接起来。同时，zskiplistLevel 结构体中还定
+ *   义了跨度，这是用来记录结点在某一层上的*forward指针和该指针指向的结点之间，跨越了 level0 上的几个结点。
+ */
 typedef struct zskiplistNode {
+    // Sorted Set 中的元素
     sds ele;
+
+    // 元素权重值 - 分数
     double score;
+
+    // 向后指针
     struct zskiplistNode *backward;
+
+    // 节点的 level 数组，基于当前节点保存每层上的前向指针和跨度
     struct zskiplistLevel {
+        // 向前指针
         struct zskiplistNode *forward;
+
+        /*
+         * 跨度，用于记录两个节点之间的距离。这里是 当前节点 到 向前指针 forward 指向的节点之间的距离。
+         * 1）两个节点之间的跨度越大，它们相距得就越远
+         * 2）指向 NULL 的所有前进指针的跨度都为 0 ，因为它们没有连向任何节点
+         * 3）level[] 的下标从 0 开始，0 表示最底层
+         * 特别说明：
+         * 某层上的遍历操作只使用前进指针即可完成，跨度实际上是用来计算排位(rank)的，在查找某个节点的过程中，将
+         * 沿途访问过的所有层的跨度累加起来，得到的结果就是目标节点在跳表中的排序。
+         */
         unsigned long span;
     } level[];
+
 } zskiplistNode;
 
+/**
+ * 跳表
+ */
 typedef struct zskiplist {
+    // 跳表头节点和表尾节点
     struct zskiplistNode *header, *tail;
+
+    // 跳表长度（表头节点不计算在内）
     unsigned long length;
+
+    // 跳表的最大层数（表头节点的层数不计算在内）
     int level;
 } zskiplist;
 
 /**
- * zset 相关的结构，包含两个成员：哈希表 dict 和跳表 zsl
+ * Sorted Set 结构体的名称为 zset
+ *
+ * 包含两个成员：哈希表 dict 和跳表 zsl
+ *
+ * zset 同时采用跳表和哈希表两个数据结构
  */
 typedef struct zset {
     dict *dict;

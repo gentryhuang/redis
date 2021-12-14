@@ -1934,21 +1934,39 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
 /* Get entry pointed to by 'p' and store in either '*sstr' or 'sval' depending
  * on the encoding of the entry. '*sstr' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
- * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
+ * Return 0 if 'p' points to the end of the ziplist, 1 otherwise.
+ *
+ * 取出 p 所指向节点的值：
+ *
+ * - 如果节点保存的是字符串，那么将字符串值指针保存到 *sstr 中，字符串长度保存到 *slen
+ * - 如果节点保存的是整数，那么将整数保存到 *sval
+ *
+ * 程序可以通过检查 *sstr 是否为 NULL 来检查值是字符串还是整数。
+ *
+ * 提取值成功返回 1 ，如果 p 为空，或者 p 指向的是列表末端，那么返回 0 ，提取值失败。
+ *
+ */
 unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
     zlentry entry;
     if (p == NULL || p[0] == ZIP_END) return 0;
     if (sstr) *sstr = NULL;
 
+    // 取出 p 所指向的节点的各项信息，并保存到结构 entry 中
     zipEntry(p,
              &entry); /* no need for "safe" variant since the input pointer was validated by the function that returned it. */
+
+     // 节点的值为字符串，将字符串长度保存到 *slen ，字符串保存到 *sstr
     if (ZIP_IS_STR(entry.encoding)) {
         if (sstr) {
             *slen = entry.len;
+            // 指针指向数据的起始位置
             *sstr = p + entry.headersize;
         }
+
+        // 节点的值为整数，解码值，并将值保存到 *sval
     } else {
         if (sval) {
+            // 指针指向数据的起始位置
             *sval = zipLoadInteger(p + entry.headersize, entry.encoding);
         }
     }

@@ -2611,7 +2611,7 @@ void createSharedObjects(void) {
     int j;
 
     /* Shared command responses */
-    // 共享命令响应对象
+    // 1 共享命令响应对象
     shared.crlf = createObject(OBJ_STRING, sdsnew("\r\n"));
     shared.ok = createObject(OBJ_STRING, sdsnew("+OK\r\n"));
     shared.emptybulk = createObject(OBJ_STRING, sdsnew("$0\r\n\r\n"));
@@ -2626,7 +2626,7 @@ void createSharedObjects(void) {
     shared.plus = createObject(OBJ_STRING, sdsnew("+"));
 
     /* Shared command error responses */
-    // 共享错误响应对象
+    // 2 共享错误响应对象
     shared.wrongtypeerr = createObject(OBJ_STRING, sdsnew(
             "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
     shared.err = createObject(OBJ_STRING, sdsnew("-ERR\r\n"));
