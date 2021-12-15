@@ -63,7 +63,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     // 找到了 key 对应的 dictEntry
     if (de) {
 
-        // 取出值
+        // 取出值，这个值是个 redisObject 对象
         robj *val = dictGetVal(de);
 
         /* Update the access time for the ageing algorithm.
@@ -270,9 +270,11 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * @param signal
  */
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
+
     // 添加或覆写数据库中的键值对
     if (lookupKeyWrite(db, key) == NULL) {
         dbAdd(db, key, val);
+
     } else {
         dbOverwrite(db, key, val);
     }

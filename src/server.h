@@ -1212,7 +1212,10 @@ typedef struct zskiplist {
  * zset 同时采用跳表和哈希表两个数据结构
  */
 typedef struct zset {
+    // 字典
     dict *dict;
+
+    // 跳表
     zskiplist *zsl;
 } zset;
 

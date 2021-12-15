@@ -1535,7 +1535,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
     // 7 只要新节点不是被添加到列表末端，那么需要判断 p 所指向的节点（的header）能否编码新节点的长度。
     // - 如果新节点被添加到列表末端，则无须考虑新节点的后继节点问题，因为新节点就是最后一个节点
     // - 如果新节点不是被添加到列表末端，则需要考虑新节点的后继节点问题
-    // nextdiff 表示新旧编码之间的字典大小差（编码 reqlen 所需字节数和 p 指向节点中保存的前置节点大小的编码字节数的差值），
+    // nextdiff 表示新旧编码之间的字节大小差（编码 reqlen 所需字节数和 p 指向节点中保存的前置节点大小的编码字节数的差值），
     // 如果这个值大于 0 ，说明 p 所指向的节点（的header）存不下，需要对 p 所指向的节点（的header）进行扩展
     nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p, reqlen) : 0;
 
@@ -2005,6 +2005,7 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
      * do a realloc which might result in a different "zl"-pointer.
      * When the delete direction is back to front, we might delete the last
      * entry and end up with "p" pointing to ZIP_END, so check this. */
+    // 经过上面的操作，zl 一般会缩小一个列表项字节，这里 *p 跳到下个列表项了
     *p = zl + offset;
 
     return zl;

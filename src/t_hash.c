@@ -233,6 +233,8 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
+
+
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
@@ -445,14 +447,22 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
     return sdsfromlonglong(vll);
 }
 
+/*
+ * 按 key 在数据库中查找并返回相应的哈希对象，
+ * 如果对象不存在，那么创建一个新哈希对象并返回。
+ */
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
+
+    // 从当前 db 中根据 key 查询对应的 value 对象
     robj *o = lookupKeyWrite(c->db,key);
     if (checkType(c,o,OBJ_HASH)) return NULL;
 
+    // 哈希对象不存在，创建新的并设置到当前 db 中
     if (o == NULL) {
         o = createHashObject();
         dbAdd(c->db,key,o);
     }
+
     return o;
 }
 
@@ -660,9 +670,14 @@ void hsetCommand(client *c) {
         return;
     }
 
+    // 取出或新键哈希对象（编码不同，具体的数据结构不同）
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+
+    // 如果需要的话，转换哈希对象的编码
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
 
+    // 设置 field 和 value 到 hash
+    // todo 注意，具体的 field 和 value 都是 sds
     for (i = 2; i < c->argc; i += 2)
         created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
 

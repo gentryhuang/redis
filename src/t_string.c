@@ -120,6 +120,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     // 将键值关联到数据库
+    // 数据库使用一个字典保存所有数据
     genericSetKey(c, c->db, key, val, flags & OBJ_KEEPTTL, 1);
 
     // 将数据设置为脏
