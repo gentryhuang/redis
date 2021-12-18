@@ -176,6 +176,10 @@ void zslFree(zskiplist *zsl) {
  *
  * 返回值介于 1 和 ZSKIPLIST_MAXLEVEL（32） 之间（包含 ZSKIPLIST_MAXLEVEL），根据随机算法所使用的幂次定律，越大的值生成的几率越小。
  *
+ * 说明：
+ * 这个预设「概率」决定了一个跳表的内存占用和查询复杂度：概率设置越低，层数越少，元素指针越少，内存占用也就越少，但查询复杂会变高，反之亦然。
+ * 这也是 skiplist 的一大特点，可通过控制概率，进而控制内存和查询效率
+ *
  */
 int zslRandomLevel(void) {
     // 初始化层为 1

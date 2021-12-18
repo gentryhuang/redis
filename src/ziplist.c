@@ -433,12 +433,25 @@ address                                |                          |        |
  */
 typedef struct zlentry {
 
+
+    /*
+     * 在 ziplist 中每个列表项都会记录前一项的长度，也就是 prevlen，然后，为了节省内存开销，
+     * ziplist 会使用不同的空间记录 prevlen ，这个 prevlen 空间大小就是 prevlensize。
+     *
+     */
+
     // 编码 prevrawlen 所需要的字节大小
     // 即使用多少个字节存储前置项长度 todo 这个是存储的属性
     unsigned int prevrawlensize; /* Bytes used to encode the previous entry len*/
 
     // 前置项长度
     unsigned int prevrawlen;     /* Previous entry len. */
+
+
+
+
+
+
 
     // 编码 len 所需的字节大小
     // 即使用多少字节存储节点数据长度 todo 这个是存储的属性
@@ -1461,7 +1474,7 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
  */
 unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
 
-    // 记录当前 ziplist 的大小
+    // 记录当前 ziplist 的字节大小
     size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), reqlen, newlen;
 
     unsigned int prevlensize, prevlen = 0;

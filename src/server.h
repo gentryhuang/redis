@@ -1159,7 +1159,7 @@ struct sharedObjectsStruct {
  * 3 因为跳表是一个多层的有序链表，每一层也是由多个结点通过指针连接起来的。因此在跳表结点的结构定义中，还包含了一个 zskiplistLevel 结构体类型的 level 数组。
  *   level 数组中的每一个元素对应了一个 zskiplistLevel 结构体，也对应了跳表的一层。
  * 4 zskiplistLevel 结构体定义了一个指向下一结点的前向指针（*forward），这就使得结点可以在某一层上和后续结点连接起来。同时，zskiplistLevel 结构体中还定
- *   义了跨度，这是用来记录结点在某一层上的*forward指针和该指针指向的结点之间，跨越了 level0 上的几个结点。
+ *   义了跨度，这是用来记录结点在某一层上的*forward指针指向的结点之间，跨越了 level0 上的几个结点。
  */
 typedef struct zskiplistNode {
     // Sorted Set 中的元素
@@ -1168,7 +1168,7 @@ typedef struct zskiplistNode {
     // 元素权重值 - 分数
     double score;
 
-    // 向后指针
+    // 向后指针，用在最低层
     struct zskiplistNode *backward;
 
     // 节点的 level 数组，基于当前节点保存每层上的前向指针和跨度

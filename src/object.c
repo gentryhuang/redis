@@ -410,15 +410,16 @@ robj *createHashObject(void) {
  * @return
  */
 robj *createZsetObject(void) {
+    // 1 分配 zset 结构空间
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
 
-    // 创建字典
+    // 2 创建字典
     zs->dict = dictCreate(&zsetDictType, NULL);
-    // 创建跳表
+    // 3 创建跳表
     zs->zsl = zslCreate();
 
-    // 创建 ZSetObject 对象封装 跳表
+    // 4 创建 ZSetObject 对象封装 跳表
     o = createObject(OBJ_ZSET, zs);
     o->encoding = OBJ_ENCODING_SKIPLIST;
     return o;

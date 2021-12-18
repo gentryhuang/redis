@@ -146,12 +146,15 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
+
         if (where == LIST_TAIL) {
             quicklistInsertAfter((quicklist *)entry->entry.quicklist,
                                  &entry->entry, str, len);
+
         } else if (where == LIST_HEAD) {
             quicklistInsertBefore((quicklist *)entry->entry.quicklist,
                                   &entry->entry, str, len);
+
         }
         decrRefCount(value);
     } else {
@@ -299,6 +302,9 @@ void linsertCommand(client *c) {
             break;
         }
     }
+
+
+
     listTypeReleaseIterator(iter);
 
     if (inserted) {
