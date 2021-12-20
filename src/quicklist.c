@@ -613,7 +613,7 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     int ziplist_overhead;
     /* size of previous offset */
     //上一个entry节点的信息
-    if (sz < 254)   // 如果ziplist的大小小于254
+    if (sz < 254)
         ziplist_overhead = 1; //编码需要1个字节
     else
         ziplist_overhead = 5; //否则需要5个字节
@@ -1844,6 +1844,7 @@ int quicklistPopCustom(quicklist *quicklist,
     quicklistNode *node;
     if (where == QUICKLIST_HEAD && quicklist->head) {
         node = quicklist->head;
+
     } else if (where == QUICKLIST_TAIL && quicklist->tail) {
         node = quicklist->tail;
     } else {
@@ -1903,12 +1904,15 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
     // 从 quicklist 中获取元素
     int ret = quicklistPopCustom(quicklist, where, &vstr, &vlen, &vlong,
                                  _quicklistSaver);
+
+    // 取出元素
     if (data)
         *data = vstr;
     if (slong)
         *slong = vlong;
     if (sz)
         *sz = vlen;
+
     return ret;
 }
 

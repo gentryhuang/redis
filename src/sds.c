@@ -423,6 +423,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
         s = (char *) newsh + hdrlen;
 
         // todo 标记 buf 属于哪种 SDS 类型
+        // s[-1] 相当于 *(s -1) , s 是个 char* 类型指针，-1 意味着指针向后移动了 sizeof(char) ，对于 SDS 结构就是其中的 flags 值
         s[-1] = type;
 
         // 设置 sds 实际长度

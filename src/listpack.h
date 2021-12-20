@@ -40,26 +40,88 @@
 
 #define LP_INTBUF_SIZE 21 /* 20 digits of -2^63 + 1 null term = 21. */
 
-/* lpInsert() where argument possible values: */
-#define LP_BEFORE 0
+/* lpInsert() where argument possible values:
+ *
+ * 插入元素的位置
+ */
+#define LP_BEFORE 0 //
 #define LP_AFTER 1
 #define LP_REPLACE 2
 
+/*
+ * 创建一个指定大小的 listpack
+ */
 unsigned char *lpNew(size_t capacity);
+
+/*
+ * 释放 listpack
+ */
 void lpFree(unsigned char *lp);
-unsigned char* lpShrinkToFit(unsigned char *lp);
-unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
+
+/*
+ * 缩小内存以适应
+ */
+unsigned char *lpShrinkToFit(unsigned char *lp);
+
+/*
+ * 新增大小为 size 的元素 ele
+ *
+ */
+unsigned char *
+lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
+
+/*
+ * 追加元素
+ */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size);
+
+/*
+ * 删除 p 指向的元素
+ */
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
+
+/*
+ * 获取 listpack 元素个数
+ */
 uint32_t lpLength(unsigned char *lp);
+
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
+
+/*
+ * 获取首个元素
+ */
 unsigned char *lpFirst(unsigned char *lp);
+
+/*
+ * 获取最后一个元素
+ */
 unsigned char *lpLast(unsigned char *lp);
+
+/*
+ * 正向遍历
+ */
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
+
+/*
+ * 反向遍历
+ * todo 实现的核心，依赖 listpack 的结构
+ */
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
+
+/*
+ * 返回 listpack 总字节数
+ */
 uint32_t lpBytes(unsigned char *lp);
+
+/*
+ * 查找指定元素并返回指向查找元素的指针
+ *
+ * 本质上依赖正向或反向遍历
+ */
 unsigned char *lpSeek(unsigned char *lp, long index);
+
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep);
+
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 
 #endif
