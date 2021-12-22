@@ -827,6 +827,7 @@ int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, un
     long long value;
 
     // 忽略太长或太短的字符串
+    // ziplist 能支持的最大整数是多大？ 根据这里可以看出，传入的int值大小不会超过32位，那么最大值应该就是int32的最大值
     if (entrylen >= 32 || entrylen == 0) return 0;
 
     // 尝试将 string 转成  long long，如果可以转换则将转换后的整数保存在 value 中

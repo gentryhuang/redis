@@ -71,7 +71,7 @@ unsigned char *
 lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
 
 /*
- * 追加元素
+ * 追加元素，即在 listpack 后面追加元素
  */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size);
 
