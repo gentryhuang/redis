@@ -74,6 +74,8 @@ typedef long long ustime_t; /* microsecond time type. */
                            N-elements flat arrays */
 #include "rax.h"     /* Radix tree */
 #include "connection.h" /* Connection abstraction */
+// 自定义
+#include "newList.h"
 
 #define REDISMODULE_CORE 1
 
@@ -84,7 +86,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
-
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
@@ -526,6 +527,8 @@ typedef enum {
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 
+#define OBJ_NEW_LIST 7
+
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
 #define REDISMODULE_TYPE_ENCVER_MASK ((1<<REDISMODULE_TYPE_ENCVER_BITS)-1)
@@ -680,6 +683,9 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 // 注意，Redis 的提供的扩展数据类型，没有对应的编码，因为是基于现有的数类型，通过数据编码或是实现新的操作的方式，来实现扩展数据类型,
 // 如基于 Sorted Set 和 GeoHash 编码实现 GEO，以及基于 String 和位操作实现 Bitmap；
+
+// 自定义单向链表
+#define OBJ_ENCODING_NEWLIST 11
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -2411,6 +2417,8 @@ void listTypeTryConversion(robj *subject, robj *value);
 
 void listTypePush(robj *subject, robj *value, int where);
 
+void newListTypePush(robj *subject, robj *value);
+
 robj *listTypePop(robj *subject, int where);
 
 unsigned long listTypeLength(const robj *subject);
@@ -3878,3 +3886,17 @@ int tlsConfigure(redisTLSContextConfig *ctx_config);
 int iAmMaster(void);
 
 #endif
+
+/*
+ * 自定义链表的命令
+ */
+void lnewpushCommand(client *c);
+
+void newListLenCommand(client *c);
+
+/*
+ * 自定义链表的功能函数
+ */
+robj *createNewlistObject(void);
+
+size_t newListObjectLen(robj *o);

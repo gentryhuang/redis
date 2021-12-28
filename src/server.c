@@ -1147,7 +1147,17 @@ struct redisCommand redisCommandTable[] = {
 
         {"failover",             failoverCommand,            -1,
                 "admin no-script ok-stale",
-                0, NULL,                        0, 0,  0, 0, 0, 0}
+                0, NULL,                        0, 0,  0, 0, 0, 0},
+
+
+        {"newlistpush",               lnewpushCommand,              -3,
+                "write use-memory fast @newlist",
+                0, NULL,                        1, 1,  1, 0, 0, 0},
+
+        {"newlistlen",               newListLenCommand,              2,
+                "read-only fast @newlist",
+                0, NULL,                        1, 1,  1, 0, 0, 0},
+
 };
 
 /*============================ Utility functions ============================ */

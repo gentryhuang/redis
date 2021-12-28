@@ -31,7 +31,7 @@
 #include "server.h"
 #include <math.h>
 #include <ctype.h>
-
+#include "newList.h"
 #ifdef __CYGWIN__
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
@@ -1724,4 +1724,26 @@ void memoryCommand(client *c) {
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+/**
+ * 创建一个自定义的单向链表对象
+ * @return
+ */
+robj *createNewlistObject(void) {
+    // 创建自定义单向链表
+    newList *l = newListCreate();
+
+    // 创建 listObject 对象封装 快速列表
+    robj *o = createObject(OBJ_NEW_LIST, l);
+    o->encoding = OBJ_ENCODING_NEWLIST;
+    return o;
+}
+
+/*
+ * 获取自定义的单向链表的长度
+ */
+size_t newListObjectLen(robj *o) {
+    serverAssertWithInfo(NULL, o, o->type == OBJ_NEW_LIST);
+    return getNewListLength(o->ptr);
 }
