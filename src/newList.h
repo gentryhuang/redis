@@ -10,18 +10,18 @@
 /*
  * 自定义单向链表
  */
-typedef struct newList {
+struct newList {
     struct newListNode *head;
     size_t len;
-} newList;
+};
 
-typedef struct newListNode {
+struct newListNode {
     long value;
     struct newListNode *next;
-} newListNode;
+};
 
-newList *newListCreate(void);
+struct newList *newListCreate(void);
 
-newList *newListAddNodeHead(newList *list, void *value);
+struct newList *newListAddNodeHead(struct newList *list, void *value);
 
-size_t getNewListLength(newList *list);
+size_t getNewListLength(struct newList *list);
