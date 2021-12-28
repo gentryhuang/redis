@@ -153,7 +153,7 @@ static intset *intsetResize(intset *is, uint32_t len) {
     // 计算数组的空间大小
     uint32_t size = len * intrev32ifbe(is->encoding);
 
-    // 根据空间大小，重新分配空间
+    // todo 根据空间大小，重新分配空间，包括：intset 结构体大小 + 元素占用空间大小
     // 注意，zrealloc 分配空间，如果新空间大小比原来的空间大小要大，那么数组原有的数据会被保留
     is = zrealloc(is, sizeof(intset) + size);
 
@@ -369,7 +369,7 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
          * the value when it cannot be found. */
         // 4.1  判断 value 是否在集合中存在
         // 如果存在，那么将 *success 设置为 0 ，并返回未经改动的整数集合。
-        // 如果不存在，那么可以将 value 放入到 pos 指针位置
+        // 如果不存在，那么可以将 value 放入到 pos 指针位置，todo 注意是有序的位置
         if (intsetSearch(is, value, &pos)) {
             if (success) *success = 0;
             return is;

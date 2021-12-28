@@ -92,14 +92,15 @@ struct __attribute__ ((__packed__)) sdshdr5 {
  * 5  __attribute__ ((__packed__)) 除了节省内存空间外，还有一个很精妙的设计就是在编译之后，sds 可以和 sds 所在的 Header 进行相互查找，这是 SDS 设计的灵魂。
  */
 struct __attribute__ ((__packed__)) sdshdr8 {
-    // 字符数组现有长度。 8 位无符号整型，占用 1 字节的内存空间
+    // 字符数组现有长度。 8 位无符号整型，占用 1 字节的内存空间。
+    // 一个字符是一个长度，一个字符占一个字节，len 用来计数多少个字符。因此，SDS 的容量大小 len 大小个字节
     uint8_t len; /* used */
     // 字符数组已经分配的长度, 不包括结构体和\0结束符
     uint8_t alloc; /* excluding the header and null terminator */
     // SDS 类型
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     // 字符数组，用来保存实际数据
-    char buf[];
+    char buf[]; // todo 注意，再分配 sdshdr 时不会分配该属性的内存空间，因为大小不确定。如果大小确定就可以分配了，如 char buf[1]
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used */

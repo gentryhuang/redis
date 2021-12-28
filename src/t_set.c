@@ -51,12 +51,17 @@ robj *setTypeCreate(sds value) {
  * returned, otherwise the new element is added and 1 is returned. */
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
+
+    // hashtable
     if (subject->encoding == OBJ_ENCODING_HT) {
         dict *ht = subject->ptr;
         dictEntry *de = dictAddRaw(ht,value,NULL);
         if (de) {
+            // 哈希项中的 key 是传入的 value 值
             dictSetKey(ht,de,sdsdup(value));
+            // 哈希项中的 value 没有用，设置为 NULL
             dictSetVal(ht,de,NULL);
+            
             return 1;
         }
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {

@@ -476,7 +476,9 @@ void geoaddCommand(client *c) {
      * the score,value pairs to the requested zset, where score is actually
      * an encoded version of lat,long.
      *
-     * 创建参数集合来调用 zadd，以便将所有的 score 值对添加到请求的 zset 中。其中 score 实际上是 lat、long 的编码后的值
+     * 创建参数集合来调用 zadd，以便将所有的 score 值对添加到请求的 zset 中。
+     *
+     * 其中 score 实际上是 lat、long 的编码后的值
      */
     for (i = 0; i < elements; i++) {
         double xy[2];
