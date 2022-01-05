@@ -614,8 +614,22 @@ void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
 
+/**
+ * 命令执行之前，检查对象是否可以执行给定的命令。
+ * 如：根据 key 获得是 string 类型的对象，但是执行的是 hash 类型的命令。那么这个 string 类型的对象就不能执行 hash 类型的命令。
+ *
+ * @param c 客户端
+ * @param o 某个类型的对象
+ * @param type 数据类型
+ * @return
+ */
 int checkType(client *c, robj *o, int type) {
-    /* A NULL is considered an empty key */
+    /* A NULL is considered an empty key
+     *
+     * 类型不匹配，提示以下错误信息：
+     *
+     * -WRONGTYPE Operation against a key holding the wrong kind of value
+     */
     if (o && o->type != type) {
         addReplyErrorObject(c, shared.wrongtypeerr);
         return 1;

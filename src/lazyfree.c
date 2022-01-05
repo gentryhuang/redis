@@ -203,7 +203,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key, val);
 
-        // 获取val对象所包含的元素个数（评估 free 当前 key 的代价）
+        // todo 获取val对象所包含的元素个数（评估 free 当前 key 的代价）
         size_t free_effort = lazyfreeGetFreeEffort(key, val);
 
         /* If releasing the object is too much work, do it in the background

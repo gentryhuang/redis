@@ -1432,6 +1432,7 @@ struct redisServer {
     // tcp socket 文件描述符
     socketFds ipfd;             /* TCP socket file descriptors */
     socketFds tlsfd;            /* TLS socket file descriptors */
+
     int sofd;                   /* Unix socket file descriptor */
     socketFds cfd;              /* Cluster bus listening socket */
     list *clients;              /* List of active clients */

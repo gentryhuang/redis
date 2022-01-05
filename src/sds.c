@@ -64,6 +64,7 @@ static inline int sdsHdrSize(char type) {
 
 /**
  * 根据传入的表示 SDS 字符数组长度，计算出对应的 SDS 的类型
+ *
  * @param string_size
  * @return
  */
