@@ -343,6 +343,9 @@ sds sdscatprintf(sds s, const char *fmt, ...);
 
 sds sdscatfmt(sds s, char const *fmt, ...);
 
+/*
+ * 去除 sds 中指定的字符串 *cset
+ */
 sds sdstrim(sds s, const char *cset);
 
 void sdsrange(sds s, ssize_t start, ssize_t end);
@@ -387,6 +390,11 @@ sds sdsMakeRoomFor(sds s, size_t addlen);
 
 void sdsIncrLen(sds s, ssize_t incr);
 
+/**
+ * 缩小容量
+ * @param s
+ * @return
+ */
 sds sdsRemoveFreeSpace(sds s);
 
 size_t sdsAllocSize(sds s);

@@ -654,10 +654,16 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 /* Optimize the SDS string inside the string object to require little space,
  * in case there is more than 10% of free space at the end of the SDS
  * string. This happens because SDS strings tend to overallocate to avoid
- * wasting too much time in allocations when appending to the string. */
+ * wasting too much time in allocations when appending to the string.
+ *
+ * 优化字符串对象中的SDS字符串，以减少需要的空间，以防SDS字符串末尾有超过10%的空闲空间。发生这种情况是因为SDS字符串倾向于过度分配以避免
+ * 当附加到字符串时，在分配中浪费了太多的时间。
+ *
+ */
 void trimStringObjectIfNeeded(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(o->ptr) > sdslen(o->ptr) / 10) {
+    // 简单动态字符串 & buf 数组末尾超过 10%的空闲空间
+    if (o->encoding == OBJ_ENCODING_RAW && sdsavail(o->ptr) > sdslen(o->ptr) / 10) {
+        // 缩容
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 }

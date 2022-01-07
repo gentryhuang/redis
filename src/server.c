@@ -1745,7 +1745,9 @@ int clientsCronResizeQueryBuffer(client *c) {
          idletime > 2)) {
         /* Only resize the query buffer if it is actually wasting
          * at least a few kbytes. */
+        // 查询缓冲区空闲空间 > 1024 * 4
         if (sdsavail(c->querybuf) > 1024 * 4) {
+            // 对缓冲区缩小容量
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
         }
     }
@@ -1765,6 +1767,7 @@ int clientsCronResizeQueryBuffer(client *c) {
         size_t pending_querybuf_size = sdsAllocSize(c->pending_querybuf);
         if (pending_querybuf_size > LIMIT_PENDING_QUERYBUF &&
             sdslen(c->pending_querybuf) < (pending_querybuf_size / 2)) {
+            // 对 pending_querybuf 缩小容量
             c->pending_querybuf = sdsRemoveFreeSpace(c->pending_querybuf);
         }
     }
@@ -1852,6 +1855,9 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
  */
 #define CLIENTS_CRON_MIN_ITERATIONS 5
 
+/*
+ * 客户端的异步操作
+ */
 void clientsCron(void) {
     /* Try to process at least numclients/server.hz of clients
      * per call. Since normally (if there are no big latency events) this
@@ -1885,7 +1891,7 @@ void clientsCron(void) {
     ClientsPeakMemInput[zeroidx] = 0;
     ClientsPeakMemOutput[zeroidx] = 0;
 
-
+    // 遍历客户端
     while (listLength(server.clients) && iterations--) {
         client *c;
         listNode *head;
@@ -1897,9 +1903,16 @@ void clientsCron(void) {
         head = listFirst(server.clients);
         c = listNodeValue(head);
         /* The following functions do different service checks on the client.
+         * 以下函数在客户机上执行不同的服务检查。
+         *
          * The protocol is that they return non-zero if the client was
-         * terminated. */
+         * terminated.
+         * 协议是，如果客户端被终止，它们返回非零。
+         */
+
         if (clientsCronHandleTimeout(c, now)) continue;
+
+        // 调整客户端缓冲区
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
         if (clientsCronTrackClientsMemUsage(c)) continue;

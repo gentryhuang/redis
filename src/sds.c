@@ -152,6 +152,8 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     int hdrlen = sdsHdrSize(type);
 
     unsigned char *fp; /* flags pointer. */
+
+    // 分配大小
     size_t usable;
 
     assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
@@ -159,7 +161,7 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     // 根据是否尝试 malloc，新建SDS结构，并分配内存空间
     // todo sh 指向当前新建的 SDS 结构，即 sh指向SDS结构体起始位置
     sh = trymalloc ?
-         s_trymalloc_usable(hdrlen + initlen + 1, &usable) :
+         s_trymalloc_usable(hdrlen + initlen + 1, &usable) : // 内存不足不报错
          s_malloc_usable(hdrlen + initlen + 1, &usable);
     if (sh == NULL) return NULL;
 
@@ -177,6 +179,7 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
 
     fp = ((unsigned char *) s) - 1;
 
+    // todo 计算 字符数组分配的长度, 不包括结构体和\0结束符
     // 防御性编程，防止超过当前 SDS 能表示的字符数组长度
     usable = usable - hdrlen - 1;
     if (usable > sdsTypeMaxSize(type))
@@ -363,7 +366,8 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     // 4 获取 sds 所在的 SDS 结构体
     sh = (char *) s - sdsHdrSize(oldtype);
 
-    // 5 获取新的长度，sds 当前长度 + addlen
+    // 5 todo 获取新的长度，sds 当前长度 + addlen
+    // 这样做是为了尽可能减少内存分配大小，做到按需分配
     newlen = (len + addlen);
     assert(newlen > len);   /* Catch size_t overflow */
 
@@ -432,6 +436,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     }
 
     // 9 获取 SDS 结构体最大可存储字符串的长度，这里 -1 是包括数组最后一位 \0
+    // todo 计算 字符数组分配的长度, 不包括结构体和\0结束符
     usable = usable - hdrlen - 1;
 
     // 防御性编程
@@ -456,36 +461,66 @@ sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+
+    // 获取 s 的现有长度
     size_t len = sdslen(s);
+
+    // 获取 s 可用大小
     size_t avail = sdsavail(s);
+
+    // s 对应的 SDS 结构指针
     sh = (char *) s - oldhdrlen;
 
     /* Return ASAP if there is no space left. */
+    // 没有剩余空间
     if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
+    // 根据 s 现有长度，获取对应的 SDS 类型
     type = sdsReqType(len);
+
+    // 获取 type 对应的 sdshdr 大小
     hdrlen = sdsHdrSize(type);
 
     /* If the type is the same, or at least a large enough type is still
      * required, we just realloc(), letting the allocator to do the copy
      * only if really needed. Otherwise if the change is huge, we manually
      * reallocate the string to use the different header type. */
+    // 如果类型相同，或者需要一个足够大的类型。那么只需 realloc() ，让分配器只在真正需要时进行复制
     if (oldtype == type || type > SDS_TYPE_8) {
+        // 调整 SDS 大小
         newsh = s_realloc(sh, oldhdrlen + len + 1);
         if (newsh == NULL) return NULL;
+
+        // 指向 buf
+        // 这里无需处理元素
         s = (char *) newsh + oldhdrlen;
+
+        // sds 中元素很少，需要重新分配以使用不同的头文件类型
     } else {
+        // 分配 SDS 大小
         newsh = s_malloc(hdrlen + len + 1);
         if (newsh == NULL) return NULL;
+
+        // 将旧的 SDS 中的字符复制到新的 SDS 的 buf 中
         memcpy((char *) newsh + hdrlen, s, len + 1);
+
+        // 释放旧的 SDS
         s_free(sh);
+
+        // 设置 flag
         s = (char *) newsh + hdrlen;
         s[-1] = type;
+
+        // 设置新的 SDS 中元素个数
         sdssetlen(s, len);
     }
+
+    // 设置 SDS 的实际分配长度
+    // todo 注意，这里分配大小直接使用的是 len，即传入 sds 的实际元素个数大小，而不是真正的可用内存空间大小
     sdssetalloc(s, len);
+
     return s;
 }
 

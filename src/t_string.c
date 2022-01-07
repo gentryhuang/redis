@@ -146,6 +146,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         rewriteClientCommandVector(c, 5, shared.set, key, val, exp, millisecondObj);
         decrRefCount(millisecondObj);
     }
+
     if (!(flags & OBJ_SET_GET)) {
         addReply(c, ok_reply ? ok_reply : shared.ok);
     }
