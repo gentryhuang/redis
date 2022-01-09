@@ -77,6 +77,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
                 val->lru = LRU_CLOCK();
             }
         }
+
         // 返回
         return val;
     } else {
@@ -160,7 +161,10 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
+    // key 过期执行删除
     expireIfNeeded(db, key);
+
+    // 查询 key 对应的值
     return lookupKey(db, key, flags);
 }
 
@@ -1652,7 +1656,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  */
 int expireIfNeeded(redisDb *db, robj *key) {
 
-    // 判断键是否过期
+    // 判断键是否过期，没有过期直接返回
     if (!keyIsExpired(db, key)) return 0;
 
     /* If we are running in the context of a slave, instead of

@@ -177,7 +177,7 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
  * 异步删除逻辑：
  * 1. 清除待删除 key 的过期时间
  * 2. 将待删除的对象从数据字典中移除
- * 3. 判断删除 key 对应的 val 大小（太小就每必要异步删除了），如果足够大则加到后台线程任务队列中
+ * 3. 判断删除 key 对应的 val 大小（太小就每必要异步删除了），如果足够大则加到后台线程任务队列中 （todo bigkey 处理）
  * 4. 清理数据字典的条目信息
  */
 int dbAsyncDelete(redisDb *db, robj *key) {

@@ -128,7 +128,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
 
     notifyKeyspaceEvent(NOTIFY_STRING, "set", key, c->db->id);
 
+    // 过期
     if (expire) {
+        // 加入过期字典
         setExpire(c, c->db, key, when);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", key, c->db->id);
 

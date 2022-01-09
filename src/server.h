@@ -765,7 +765,9 @@ typedef struct clientReplyBlock {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
+    // 数据字典，key -> 键、value -> 值
     dict *dict;                 /* The keyspace for this DB */
+    // 过期字典，key -> 键、value -> 过期时间
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
@@ -1515,10 +1517,18 @@ struct redisServer {
     long long stat_sync_full;       /* Number of full resyncs with slaves. */
     long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
     long long stat_sync_partial_err;/* Number of unaccepted PSYNC requests. */
+
+    /** 慢查询 */
+    // 保存了所有慢查询日志的链表
     list *slowlog;                  /* SLOWLOG list of commands */
+    // 下一条慢查询日志的 id
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
+
+    // 服务器慢查询的两个配置项
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+
+
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
@@ -1841,8 +1851,19 @@ struct redisServer {
     ustime_t ustime;            /* 'unixtime' in microseconds. */
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
-    /* Pubsub */
+
+    /** Pubsub 发布订阅 */
+    /*
+     * 记录 所有频道的订阅关系
+     * key: 频道
+     * value: 是个列表，订阅当前频道的客户端们
+     */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
+    /*
+     * 记录 所有模式的订阅关系
+     * key: 模式
+     * value: 是个列表，订阅当前模式的客户端们
+     */
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
