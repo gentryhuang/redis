@@ -537,6 +537,8 @@ void flushAppendOnlyFile(int force) {
     }
 
     latencyStartMonitor(latency);
+
+    // write
     nwritten = aofWrite(server.aof_fd, server.aof_buf, sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
@@ -657,13 +659,14 @@ void flushAppendOnlyFile(int force) {
      * children doing I/O in the background.
      *
      * 如果 no-appendfsync-on-rewrite 选项为开启状态，并且有 BGSAVE 或者 BGREWRITEAOF 正在进行的话，那么就不执行 fsync 。
+     *
      * 这样就能在一定程度上避免因 BGSAVE 或 BGREWRITEAOF 占用大量的磁盘 IO 带宽，执行 fsync 发生延迟或阻塞问题。
      */
     if (server.aof_no_fsync_on_rewrite && hasActiveChildProcess())
         return;
 
     /* Perform the fsync if needed. */
-    // 总是执行 fsnyc
+    // 总是执行 fsnyc，前面只是写入缓冲区了，并没有真正
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
