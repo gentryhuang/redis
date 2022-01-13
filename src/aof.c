@@ -666,14 +666,19 @@ void flushAppendOnlyFile(int force) {
         return;
 
     /* Perform the fsync if needed. */
-    // 总是执行 fsnyc，前面只是写入缓冲区了，并没有真正
+    // 总是执行 fsnyc，前面只是写入缓冲区了，并没有真正刷盘
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         latencyStartMonitor(latency);
         /* Let's try to get this data on the disk. To guarantee data safe when
          * the AOF fsync policy is 'always', we should exit if failed to fsync
-         * AOF (see comment next to the exit(1) after write error above). */
+         * AOF (see comment next to the exit(1) after write error above).
+         *
+         * 我们试着把数据存到磁盘上。
+         *
+         * 为了保证数据安全，当 AOF 的 fsync 策略是 always 时，如果fsync AOF失败，我们应该退出(参见上面写错误后的exit(1)旁边的注释)
+         */
         if (redis_fsync(server.aof_fd) == -1) {
             serverLog(LL_WARNING, "Can't persist AOF for fsync error when the "
                                   "AOF fsync policy is 'always': %s. Exiting...", strerror(errno));
@@ -854,8 +859,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
      * of re-entering the event loop, so before the client will get a
      * positive reply about the operation performed.
      *
-     * 将命令追加到 AOF 缓冲中，在重新进入事件循环之前，这些命令会被刷新到磁盘上，并向客户度返回一个回复。
-     *
+     * todo 将命令追加到 AOF 缓冲中，在重新进入事件循环之前，这些命令会被刷新到磁盘上，并向客户度返回一个回复。
      */
     if (server.aof_state == AOF_ON)
         server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));
@@ -865,7 +869,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
      * in a buffer, so that when the child process will do its work we
      * can append the differences to the new append only file.
      *
-     * 如果 BGREWRITEAOF 正在进行，那么还需要将命令追加到 AOF 重写缓冲中，从而记录当前正在重写的 AOF 文件和数据库当前状态的差异。
+     * todo 如果 BGREWRITEAOF 正在进行，那么还需要将命令追加到 AOF 重写缓冲中，从而记录当前正在重写的 AOF 文件和数据库当前状态的差异。
      *
      */
     if (server.child_type == CHILD_TYPE_AOF)

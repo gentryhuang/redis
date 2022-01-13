@@ -763,16 +763,31 @@ typedef struct clientReplyBlock {
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
- * database. The database number is the 'id' field in the structure. */
+ * database. The database number is the 'id' field in the structure.
+ *
+ * Redis 是一个键值对数据库服务器，服务器中的每个数据库都由该结构体表示
+ */
 typedef struct redisDb {
-    // 数据字典，key -> 键、value -> 值
-    dict *dict;                 /* The keyspace for this DB */
-    // 过期字典，key -> 键、value -> 过期时间
+
+
+    /** 注意，键空间的键和过期字典的键都指向同一个键对象，不会出现任何重复对象，也不会浪费空间 */
+    /*
+     * （键空间）数据字典，key -> 键、value -> 值；保存了当前数据库中所有键值对。
+     */
+    dict *dict;                 /* The keyspace for this DB 键空间*/
+
+    /*
+     * 过期字典，key -> 键、value -> 过期时间（一个毫秒精度的 UNIX 时间戳）;保存了当前数据库中所有键的过期时间。
+     */
     dict *expires;              /* Timeout of keys with a timeout set */
+
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
+
     dict *ready_keys;           /* Blocked keys that received a PUSH */
+
     // 正在被 WATCH 命令监视的键
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
@@ -1389,7 +1404,12 @@ struct redisServer {
     mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
+
+    /*
+     * 数据库数组，保存所有数据库
+     */
     redisDb *db;
+
     // 命令表
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
@@ -1501,9 +1521,12 @@ struct redisServer {
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
-    long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
+    long long stat_evictedkeys;
+
+    // 在访问键时，服务器会根据键是否存在来更新键空间的命中或没有命中次数
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
+
     long long stat_active_defrag_hits;      /* number of allocations moved */
     long long stat_active_defrag_misses;    /* number of allocations scanned but not moved */
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
@@ -1573,7 +1596,12 @@ struct redisServer {
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
+
+    /*
+     * 数据库总数
+     */
     int dbnum;                      /* Total number of configured DBs */
+
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
@@ -3114,6 +3142,9 @@ int removeExpire(redisDb *db, robj *key);
 
 void propagateExpire(redisDb *db, robj *key, int lazy);
 
+/*
+ * 判断输入的键是否过期，过期则删除，并进行传播和通知
+ */
 int expireIfNeeded(redisDb *db, robj *key);
 
 long long getExpire(redisDb *db, robj *key);

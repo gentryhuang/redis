@@ -454,9 +454,6 @@ typedef struct zlentry {
 
 
 
-
-
-
     // 编码 len 所需的字节大小
     // 即使用多少字节存储节点数据长度 todo 这个是存储的属性
     unsigned int lensize;        /* Bytes used to encode this entry type/len.

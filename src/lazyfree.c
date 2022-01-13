@@ -234,10 +234,11 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later.
      *
-     * 释放键值对 或 val 为 NULL时只释放 key（由上面逻辑可知，异步删除是针对 val 的）
+     * 释放键值对 或 val 为 NULL时只释放 key（由上面逻辑可知，异步删除是针对 val 的，不是字典项本身）
      */
     if (de) {
-        //删除数据库字典条目，释放资源
+
+        // 删除数据库字典条目，释放资源
         dictFreeUnlinkedEntry(db->dict, de);
 
         if (server.cluster_enabled) slotToKeyDel(key->ptr);

@@ -160,6 +160,12 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
 
+/*
+ * 定期删除策略
+ *
+ * 1 type: 清除模式，如 ACTIVE_EXPIRE_CYCLE_FAST、ACTIVE_EXPIRE_CYCLE_SLOW
+ * 2
+ */
 void activeExpireCycle(int type) {
     /* Adjust the running parameters according to the configured expire
      * effort. The default effort is 1, and the maximum configurable effort
@@ -176,8 +182,12 @@ void activeExpireCycle(int type) {
                                     effort;
 
     /* This function has some global state in order to continue the work
-     * incrementally across calls. */
+     * incrementally across calls.
+     *
+     * 这个函数有一些全局状态，以便在调用之间增量地继续工作。
+     */
     static unsigned int current_db = 0; /* Next DB to test. */
+
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
@@ -194,7 +204,8 @@ void activeExpireCycle(int type) {
      * expires and evictions of keys not being performed. */
     if (checkClientPauseTimeoutAndReturnIfPaused()) return;
 
-    // 快速模式
+    // 快速模式，在 beforeSleep 方法中调用
+    // 用于处理在 时间任务 中执行慢删除过期键任务时没有达到目标就超时退出了，在 beforeSleep 中尝试执行一次 快速模型
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit
          * for time limit, unless the percentage of estimated stale keys is
@@ -227,6 +238,8 @@ void activeExpireCycle(int type) {
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
     timelimit = config_cycle_slow_time_perc*1000000/server.hz/100;
+
+    // 超时退出标记
     timelimit_exit = 0;
     if (timelimit <= 0) timelimit = 1;
 
@@ -241,6 +254,7 @@ void activeExpireCycle(int type) {
     long total_expired = 0;
 
     // 遍历数据库
+    // timelimit_exit == 1 ，说明超时了，要退出。
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
         unsigned long expired, sampled;
@@ -367,7 +381,10 @@ void activeExpireCycle(int type) {
             // 即使有许多的 key 到期，也不能用太长时间处理过期键，在给定的毫秒数之后需要返回
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
                 elapsed = ustime()-start;
+
+                // 超时了，需要退出
                 if (elapsed > timelimit) {
+                    // 标记退出
                     timelimit_exit = 1;
                     server.stat_expired_time_cap_reached_count++;
                     break;

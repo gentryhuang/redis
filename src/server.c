@@ -3834,9 +3834,10 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
- * 将指定的命令传播到 AOF 和 从节点
+ * 将指定的命令（以及执行该命令的上下文，比如数据库 id 等信息）传播到 AOF 和 从节点
  *
  * flags are an xor between:
+ * flag 可以是以下标识
  * + PROPAGATE_NONE (no propagation of command at all) // 没有传播命令
  * + PROPAGATE_AOF (propagate into the AOF file if is enabled) // 如果启用，传播到 AOF 文件
  * + PROPAGATE_REPL (propagate into the replication link) // 传播到从节点
@@ -3851,6 +3852,8 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  */
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags) {
+
+    // 不允许复制
     if (!server.replication_allowed)
         return;
 
@@ -3866,11 +3869,11 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
      * client pause, otherwise data may be lossed during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
-    // 将命令追加到 AOF 文件中
+    // 传播到 AOF
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd, dbid, argv, argc);
 
-    // 将命令传播到从节点
+    // 传播到从节点
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves, dbid, argv, argc);
 }
@@ -3943,6 +3946,8 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 
 /* Call() is the core of Redis execution of a command.
  *
+ * todo Call()是Redis执行命令的核心，调用命令的实现函数，执行命令。
+ *
  * The following flags can be passed:
  * CMD_CALL_NONE        No flags.
  * CMD_CALL_SLOWLOG     Check command speed and log in the slow log if needed.
@@ -3971,6 +3976,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
  *
  * Client flags are modified by the implementation of a given command
  * using the following API:
+ * 客户端标志通过使用以下API实现给定的命令来修改:
  *
  * forceCommandPropagation(client *c, int flags);
  * preventCommandPropagation(client *c);
@@ -3979,11 +3985,16 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
  *
  */
 // 调用命令的实现函数，执行命令
+// processCommand -> call
 void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
+
+    // 记录命令开始执行前的 FLAG ，和命令
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
+
+
     static long long prev_err_count;
 
     server.fixed_time_expire++;
@@ -3994,14 +4005,25 @@ void call(client *c, int flags) {
     redisOpArray prev_also_propagate = server.also_propagate;
     redisOpArrayInit(&server.also_propagate);
 
-    /* Call the command. */
+    /** Call the command. 调用命令 */
+
+    // 保留旧 dirty 计数器值
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
     updateCachedTime(0);
+
+    // 记录命令执行开始时间
     elapsedStart(&call_timer);
+    // todo 执行命令对应的函数
     c->cmd->proc(c);
+    // 计算命令执行消耗的时间
     const long duration = elapsedUs(call_timer);
     c->duration = duration;
+
+    /* 执行到这里，说明命令已经被执行了 */
+
+    // 计算命令执行之后的 dirty 值
+    // todo ？ 为什么减去
     dirty = server.dirty - dirty;
     if (dirty < 0) dirty = 0;
 
@@ -4022,12 +4044,14 @@ void call(client *c, int flags) {
 
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
+    // 不将从 lua 中发出的命令放入 SLOWLOG，也不进行统计
     if (server.loading && c->flags & CLIENT_LUA)
         flags &= ~(CMD_CALL_SLOWLOG | CMD_CALL_STATS);
 
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
+    // 如果调用者是 lua ，那么根据命令 FLAG 和客户端 FLAG ，打开传播（propagate）标志
     if (c->flags & CLIENT_LUA && server.lua_caller) {
         if (c->flags & CLIENT_FORCE_REPL)
             server.lua_caller->flags |= CLIENT_FORCE_REPL;
@@ -4042,17 +4066,19 @@ void call(client *c, int flags) {
     /* Record the latency this command induced on the main thread.
      * unless instructed by the caller not to log. (happens when processing
      * a MULTI-EXEC from inside an AOF). */
+    // 将满足条件的命令放到 SLOWLOG 中
     if (flags & CMD_CALL_SLOWLOG) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event, duration / 1000);
     }
-
     /* Log the command into the Slow log if needed.
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
         slowlogPushCurrentCommand(c, real_cmd, duration);
 
+
+    // 符合条件的话，将命令发送到 MONITOR
     /* Send the command to clients in MONITOR mode if applicable.
      * Administrative commands are considered too dangerous to be shown. */
     if (!(c->cmd->flags & (CMD_SKIP_MONITOR | CMD_ADMIN))) {
@@ -4073,17 +4099,21 @@ void call(client *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
+    // 将命令复制到 AOF 和 slave 节点
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP) {
         int propagate_flags = PROPAGATE_NONE;
 
         /* Check if the command operated changes in the data set. If so
          * set for replication / AOF propagation. */
+        //如果数据库有被修改， AOF 和 REPLICATION 传播
         if (dirty) propagate_flags |= (PROPAGATE_AOF | PROPAGATE_REPL);
 
         /* If the client forced AOF / replication of the command, set
          * the flags regardless of the command effects on the data set. */
+        // 强制 REPL 传播
         if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
+        // 强制 AOF 传播
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
@@ -4098,13 +4128,19 @@ void call(client *c, int flags) {
 
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. Note that modules commands handle replication
-         * in an explicit way, so we never replicate them automatically. */
+         * in an explicit way, so we never replicate them automatically.
+         *
+         * 只有在至少需要AOF /复制传播之一时才调用propagate()。请注意，模块命令以显式的方式处理复制，所以我们不会自动复制它们。
+         */
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd, c->db->id, c->argv, c->argc, propagate_flags);
     }
 
     /* Restore the old replication flags, since call() can be executed
-     * recursively. */
+     * recursively.
+     *
+     * 将客户端的 FLAG 恢复到命令执行之前，因为 call 可能会递归执行。
+     */
     c->flags &= ~(CLIENT_FORCE_AOF | CLIENT_FORCE_REPL | CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
                 (CLIENT_FORCE_AOF | CLIENT_FORCE_REPL | CLIENT_PREVENT_PROP);

@@ -64,7 +64,9 @@ int setTypeAdd(robj *subject, sds value) {
             
             return 1;
         }
+
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
+        // 转整数
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
@@ -75,6 +77,8 @@ int setTypeAdd(robj *subject, sds value) {
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
+
+            // 转失败，说明添加字符串
         } else {
             /* Failed to get integer from object, convert to regular set. */
             setTypeConvert(subject,OBJ_ENCODING_HT);
@@ -317,6 +321,7 @@ void saddCommand(client *c) {
     for (j = 2; j < c->argc; j++) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
+
     if (added) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);

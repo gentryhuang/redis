@@ -334,17 +334,30 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Delete a key, value, and associated expiration entry if any, from the DB */
+/* Delete a key, value, and associated expiration entry if any, from the DB
+ *
+ * 同步删除 键
+ *
+ * 1 从过期字典中删除
+ * 2 从键空间（数据字典）中删除
+ */
 int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
+
+    // 1 从过期字典中移除输入的 key，注意这个流程不会释放 key 的空间，因此数据字典还在使用
     if (dictSize(db->expires) > 0) dictDelete(db->expires, key->ptr);
+
+    // 2 从数据字典中删除
     dictEntry *de = dictUnlink(db->dict, key->ptr);
+
+    // 3 释放 key 对应的哈希项的空间
     if (de) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key, val);
         dictFreeUnlinkedEntry(db->dict, de);
+
         if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
@@ -1539,7 +1552,9 @@ long long getExpire(redisDb *db, robj *key) {
      * be present in the main dict (safety check). */
     serverAssertWithInfo(NULL, key, dictFind(db->dict, key->ptr) != NULL);
 
-    // 返回过期时间
+    // 执行到这里，说明 key 设置了过期时间
+
+    // 直接从 de 中取出过期时间
     return dictGetSignedIntegerVal(de);
 }
 
@@ -1557,7 +1572,7 @@ long long getExpire(redisDb *db, robj *key) {
  * will be consistent even if we allow write operations against expiring
  * keys.
  *
- * 通过这种方式，可以对键的过期集中在一处处理，因为 AOP 、主节点到从节点都保证了操作顺序，即使对过期键进行写操作，所有数据都还是一致的。
+ * 通过这种方式，可以对键的过期集中在一处处理，因为 AOF 、主节点到从节点都保证了操作顺序，即使对过期键进行写操作，所有数据都还是一致的。
  * */
 void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
@@ -1592,9 +1607,11 @@ int keyIsExpired(redisDb *db, robj *key) {
 
     // 获取键的过期时间
     mstime_t when = getExpire(db, key);
+
+    // 当前时间
     mstime_t now;
 
-    // 键没有过期时间
+    // 键没有设置过期时间
     if (when < 0) return 0; /* No expire for this key */
 
     /* Don't expire anything while loading. It will be done later. */
@@ -1627,6 +1644,8 @@ int keyIsExpired(redisDb *db, robj *key) {
 
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
+
+    // 判断键是否过期：当前时间是否大于过期时间
     return now > when;
 }
 
@@ -1685,6 +1704,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* 根据配置项 lazyfree-lazy-expire 选择同步删除还是异步删除*/
     if (server.lazyfree_lazy_expire) {
         // 异步删除
+        // todo 异步针对的是 key 对应的 value ，哈希项删除都是同步的
         dbAsyncDelete(db, key);
     } else {
         // 同步删除

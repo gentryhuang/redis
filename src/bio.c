@@ -221,6 +221,7 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
         job->free_args[i] = va_arg(valist, void *);
     }
     va_end(valist);
+
     bioSubmitJob(BIO_LAZY_FREE, job);
 }
 
