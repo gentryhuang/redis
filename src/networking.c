@@ -2220,8 +2220,10 @@ int processPendingCommandsAndResetClient(client *c) {
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
- * pending query buffer, already representing a full command, to process. */
-// 命令解析
+ * pending query buffer, already representing a full command, to process.
+ *
+ * 解析输入缓冲区
+ */
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     // 不断地从客户端的输入缓冲区中读取数据（客户端的输入缓冲区的数据是从连接的 Socket 中读取的）
@@ -2265,8 +2267,9 @@ void processInputBuffer(client *c) {
             }
         }
 
+        // 对于管道类型命令，调用processInlineBuffer函数解析
         if (c->reqtype == PROTO_REQ_INLINE) {
-            if (processInlineBuffer(c) != C_OK) break; //对于管道类型命令，调用processInlineBuffer函数解析
+            if (processInlineBuffer(c) != C_OK) break;
             /* If the Gopher mode and we got zero or one argument, process
              * the request in Gopher mode. To avoid data race, Redis won't
              * support Gopher if enable io threads to read queries. */
@@ -2278,8 +2281,10 @@ void processInputBuffer(client *c) {
                 c->flags |= CLIENT_CLOSE_AFTER_REPLY;
                 break;
             }
+
+            // 对于RESP协议命令，调用processMultibulkBuffer函数解析输入缓冲区，将命令请求解析为：命令及其参数，每部分都是字符串对象
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            if (processMultibulkBuffer(c) != C_OK) break; //对于RESP协议命令，调用processMultibulkBuffer函数解析
+            if (processMultibulkBuffer(c) != C_OK) break;
         } else {
             serverPanic("Unknown request type");
         }
