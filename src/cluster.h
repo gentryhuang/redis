@@ -424,6 +424,7 @@ typedef struct clusterState {
  * 2 当接收者接收到 MEET、PING、PONG 消息时，接收者会访问消息正文中的两个 clusterMsgDataGossip 结构，并根据自己是否认识 clusterMsgDataGossip 结构中记录的被选中节点来选择进行哪种操作。
  *   - 如果被选中节点不存在于接收者的已知节点列表，那么说明接收者是第一次接触到被选中节点，接收者将根据结构中记录的 IP地址和PORT等信息，与被选中节点进行握手
  *   - 如果被选中节点存在于接收者的已知节点列表，那么说明接收者之前已经与被选中节点进行过接触，接收者将根据 clusterMsgDataGossip 结构记录的信息，对被选中节点所对应的 clusterNode 结构进行更新。
+ * 3 一个 Gossip 消息的大小为 104 字节
  */
 typedef struct {
 

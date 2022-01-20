@@ -76,9 +76,9 @@ static int checkStringLength(client *c, long long size) {
  * set 命令通用方法：支持 SET、SETEX、PSETEX、SETNX 命令
  * @param c
  * @param flags  可以是 NX 或 XX
- * @param key
- * @param val
- * @param expire
+ * @param key 键对象
+ * @param val 值对象
+ * @param expire 过期对象
  * @param unit
  * @param ok_reply
  * @param abort_reply
@@ -274,15 +274,15 @@ void setCommand(client *c) {
     int unit = UNIT_SECONDS;
     int flags = OBJ_NO_FLAGS;
 
-    // 解析并设置选项参数
+    // 1 解析并设置选项参数
     if (parseExtendedStringArgumentsOrReply(c, &flags, &unit, &expire, COMMAND_SET) != C_OK) {
         return;
     }
 
-    // 尝试对值对象进行编码
+    // 2 尝试对值对象进行编码优化，以节省内存
     c->argv[2] = tryObjectEncoding(c->argv[2]);
 
-    // 执行 set 通用命令方法
+    // 3 执行 set 通用命令方法
     setGenericCommand(c, flags, c->argv[1], c->argv[2], expire, unit, NULL, NULL);
 }
 

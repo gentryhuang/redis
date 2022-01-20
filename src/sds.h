@@ -100,7 +100,7 @@ struct __attribute__ ((__packed__)) sdshdr8 {
     // SDS 类型
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     // 字符数组，用来保存实际数据
-    char buf[]; // todo 注意，再分配 sdshdr 时不会分配该属性的内存空间，因为大小不确定。如果大小确定就可以分配了，如 char buf[1]
+    char buf[]; // todo 注意，在分配 sdshdr 时不会分配该属性的内存空间，因为大小不确定。如果大小确定就可以分配了，如 char buf[1]
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used */

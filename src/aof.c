@@ -1780,7 +1780,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
  * In order to minimize the number of commands needed in the rewritten
  * log Redis uses variadic commands when possible, such as RPUSH, SADD
  * and ZADD. However at max AOF_REWRITE_ITEMS_PER_CMD items per time
- * are inserted using a single command. */
+ * are inserted using a single command.
+ *
+ */
 int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp = NULL;
@@ -1804,6 +1806,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
     startSaving(RDBFLAGS_AOF_PREAMBLE);
 
+    // 在 AOF 重写时，使用混合模式
     if (server.aof_use_rdb_preamble) {
         int error;
         if (rdbSaveRio(&aof, &error, RDBFLAGS_AOF_PREAMBLE, NULL) == C_ERR) {

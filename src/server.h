@@ -1656,6 +1656,8 @@ struct redisServer {
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
+
+    // 在 AOF 重写时使用 RDB 前导码。
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
@@ -1765,7 +1767,11 @@ struct redisServer {
      */
     long long repl_backlog_histlen; /* Backlog actual data length */
     /**
-     * 循环缓冲区的写指针位置，即下一个字节将要写入的位置
+     * 循环缓冲区的写指针位置，即下一个字节将要写入的位置。
+     * 例如，写入 len 的数据，那么：
+     * master_repl_offset+=len
+     * repl_backlog_idx+=len
+     * 但是，如果repl_backlog_idx等于repl_backlog_size时，repl_backlog_idx会被置为0，表示从环形缓冲区开始位置继续写入。
      */
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,that is the next byte will'll write to.*/
     /**
@@ -1836,10 +1842,12 @@ struct redisServer {
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Precision of random sampling */
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
+
     /* lfu 对数计数器因子：默认值是 10 */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     /* lfu 计数器衰减因子 ：默认值为 1*/
     int lfu_decay_time;             /* LFU counter decay factor. */
+
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_base;         /* Base oom_score_adj value, as observed on startup */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */

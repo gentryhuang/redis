@@ -454,9 +454,12 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 /* Reallocate the sds string so that it has no free space at the end. The
  * contained string remains not altered, but next concatenation operations
  * will require a reallocation.
+ * 重新分配sds字符串，使其末尾没有空闲空间。所包含的字符串仍然没有改变，但是下一个连接操作将需要重新分配。
  *
  * After the call, the passed sds string is no longer valid and all the
- * references must be substituted with the new pointer returned by the call. */
+ * references must be substituted with the new pointer returned by the call.
+ * 调用后，传递的 sds 字符串不再有效，所有引用都必须替换为调用返回的新指针。
+ */
 sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
@@ -478,6 +481,7 @@ sds sdsRemoveFreeSpace(sds s) {
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
     // 根据 s 现有长度，获取对应的 SDS 类型
+    // 即 检查足以容纳此字符串的最小 SDS 类型，达到缩容的目的
     type = sdsReqType(len);
 
     // 获取 type 对应的 sdshdr 大小
@@ -489,12 +493,12 @@ sds sdsRemoveFreeSpace(sds s) {
      * reallocate the string to use the different header type. */
     // 如果类型相同，或者需要一个足够大的类型。那么只需 realloc() ，让分配器只在真正需要时进行复制
     if (oldtype == type || type > SDS_TYPE_8) {
-        // 调整 SDS 大小
+        // 调整 SDS 大小，使其能够刚好存储长度为 len 的字符串，并预留一个 \0 结束符
         newsh = s_realloc(sh, oldhdrlen + len + 1);
         if (newsh == NULL) return NULL;
 
         // 指向 buf
-        // 这里无需处理元素
+        // 这里无需处理元素，因为只是处理空闲空间
         s = (char *) newsh + oldhdrlen;
 
         // sds 中元素很少，需要重新分配以使用不同的头文件类型
@@ -969,13 +973,20 @@ sds sdstrim(sds s, const char *cset) {
     char *start, *end, *sp, *ep;
     size_t len;
 
+    // 1 匹配删除的边界
     sp = start = s;
     ep = end = s + sdslen(s) - 1;
     while (sp <= end && strchr(cset, *sp)) sp++;
     while (ep > sp && strchr(cset, *ep)) ep--;
     len = (sp > ep) ? 0 : ((ep - sp) + 1);
+
+    // 2 删除匹配的字符串
     if (s != sp) memmove(s, sp, len);
+
+    // 3 重新标记字符串结束位
     s[len] = '\0';
+
+    // 4 重置字符串长度
     sdssetlen(s, len);
     return s;
 }

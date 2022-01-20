@@ -292,7 +292,7 @@
 #define ZIP_INT_32B (0xc0 | 1<<4)
 #define ZIP_INT_64B (0xc0 | 2<<4)
 #define ZIP_INT_24B (0xc0 | 3<<4)
-#define ZIP_INT_8B 0xfe
+#define ZIP_INT_8B 0xfe // 11111110
 
 /* 4 bit integer immediate encoding |1111xxxx| with xxxx between
  * 0001 and 1101.
@@ -544,6 +544,7 @@ static inline unsigned int zipIntSize(unsigned char encoding) {
             return 8;
     }
 
+    // 不足一字节 ，0
     if (encoding >= ZIP_INT_IMM_MIN && encoding <= ZIP_INT_IMM_MAX)
         return 0; /* 4 bit immediate */
     /* bad encoding, covered by a previous call to ZIP_ASSERT_ENCODING */
@@ -837,10 +838,10 @@ int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, un
          * of our encoding types that can hold this value. */
 
         // 转换成功，以从小到大的顺序检查适合值 value 的编码方式
-        if (value >= 0 && value <= 12) {
-            *encoding = ZIP_INT_IMM_MIN + value;
+        if (value >= 0 && value <= 12) { // 1111 1100
+            *encoding = ZIP_INT_IMM_MIN + value; // 1111 0001  -> 1111 1101
         } else if (value >= INT8_MIN && value <= INT8_MAX) {
-            *encoding = ZIP_INT_8B;
+            *encoding = ZIP_INT_8B; // 1111 1110
         } else if (value >= INT16_MIN && value <= INT16_MAX) {
             *encoding = ZIP_INT_16B;
         } else if (value >= INT24_MIN && value <= INT24_MAX) {
@@ -1490,7 +1491,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
 
     /* Find out prevlen for the entry that is inserted. */
     // 1 如果 p 不指向列表末端，说明列表非空，并且 p 正指向列表的其中一个节点
-    if (p[0] != ZIP_END) {
+    if (p[0] != ZIP_END) { //  非尾插 & 有元素
 
         // 1.1 记录 p 对应节点所保存的前置节点的长度 prevlen，编码该长度所使用的字节数 prevlensize ；
         ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
