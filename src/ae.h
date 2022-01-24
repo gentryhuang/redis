@@ -91,7 +91,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure
  *
- * 文件事件结构
+ * 文件事件结构，以文件作为唯一标志。
  *
  * 每一个文件描述符可能对应多个 IO 事件，即：
  * 1 eventLoop 中的 IO 事件数组是通过文件描述符进行定位的，也就是文件描述符号作为数组的下标

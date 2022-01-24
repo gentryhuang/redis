@@ -230,6 +230,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     }
 
     // 1 取出文件描述符 fd 对应的 IO事件
+    // 为什么可以直接获取，因为在初始化 aeEventLoop 时，会根据传入的参数大小初始化 aeEventLoop.events 数组大小，下标作为 fd
     aeFileEvent *fe = &eventLoop->events[fd];
 
     // 2 监听指定 fd(套接字) 上的指定事件，即添加要监听的事件
@@ -605,7 +606,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
-        /* 4 后置回调函数 - beforeSleep  （server.c 中的方法，服务器初始化时绑定的 - initServer方法）*/
+        /* 4 后置回调函数 - aftersleep  （server.c 中的方法，服务器初始化时绑定的 - initServer方法）*/
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
@@ -616,7 +617,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags) {
         // 5 遍历所有已产生的事件，并调用相应的事件处理器来处理这些事件
         for (j = 0; j < numevents; j++) {
 
-            // 5.1 从已就绪数组中获取文件描述符信息
+            // 5.1 从已就绪数组中获取文件描述符信息，进而从已注册的文件事件数组中获取该已就绪文件描述符对应的 文件事件
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
@@ -727,7 +728,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
 
-    // 主线程进入主循环，一直处理事件，直到服务器关闭
+    // 主线程进入主循环，一直捕获、分派、处理事件，直到服务器关闭
     while (!eventLoop->stop) {
        // 负责事件捕获、分发和处理
         aeProcessEvents(eventLoop, AE_ALL_EVENTS |

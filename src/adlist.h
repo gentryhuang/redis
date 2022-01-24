@@ -33,6 +33,12 @@
 
 /* Node, List, and Iterator are the only data structures used currently. */
 
+/**
+ * 说明：
+ *  List是采用quicklist + ziplist结合的方式使用，因为List的操作需要频繁修改头尾的数据，
+ *  避免ziplist级联更新，所以用quicklist（链表）+ ziplist缓解这种情况。
+ */
+
 /*
  * 双向链表节点
  */

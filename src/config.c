@@ -641,15 +641,21 @@ loaderr:
  * The function appends the additional configuration directives stored
  * in the 'options' string to the config file before loading.
  *
+ * 从指定的文件名加载服务器配置。该函数在加载之前将存储在 options 字符串中的附加配置指令附加到配置文件中。
+ *
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
- * just load a string. */
+ * just load a string.
+ *
+ * 文件名和选项都可以为 NULL，在这种情况下被认为是空的。这样 loadServerConfig 可用于仅加载文件或仅加载字符串。
+ */
 void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
     FILE *fp;
 
     /* Load the file content */
+    // 尝试载入文件内容
     if (filename) {
         if ((fp = fopen(filename,"r")) == NULL) {
             serverLog(LL_WARNING,
@@ -657,6 +663,8 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
                     filename, strerror(errno));
             exit(1);
         }
+
+        // 读取配置文件到 config
         while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
         fclose(fp);
@@ -670,11 +678,16 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     }
 
     /* Append the additional options */
+    // 追加 options 字符串到配置内容的末尾
     if (options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
+
+    // 根据配置内容，设置服务器的配置
     loadServerConfigFromString(config);
+
+    // 释放临时的字符串
     sdsfree(config);
 }
 

@@ -1392,9 +1392,16 @@ typedef enum childInfoType {
  */
 struct redisServer {
     /* General */
+    // 主进程 ID
     pid_t pid;                  /* Main process pid. */
+
+    // 主线程 ID
     pthread_t main_thread_id;         /* Main thread id */
+
+    // 配置文件的绝对路径
     char *configfile;           /* Absolute config file path, or NULL */
+
+    // 绝对可执行文件路径
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
@@ -1402,6 +1409,8 @@ struct redisServer {
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
+
+    // serverCron() 每秒调用的次数
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
 
@@ -1410,11 +1419,17 @@ struct redisServer {
      */
     redisDb *db;
 
-    // 命令表
+    // 命令表（收到 rename 配置选项的作用）
     dict *commands;             /* Command table */
+
+    // 命令表（无 rename 配置选项的作用）
     dict *orig_commands;        /* Command table before command renaming. */
+
+    // 事件循环
     aeEventLoop *el;
     rax *errors;                /* Errors table */
+
+    // 最近一次使用时钟
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
@@ -1423,6 +1438,8 @@ struct redisServer {
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE + 1];  /* ID always different at every exec. */
+
+    // 是否是哨兵模式运行
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
@@ -1488,6 +1505,8 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
+
+    // 保护模式，不接受外部访问。哨兵模式为 0
     int protected_mode;         /* Don't accept external connections. */
     int gopher_enabled;         /* If true the server will reply to gopher
                                    queries. Will still serve RESP2 queries. */

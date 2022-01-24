@@ -2606,6 +2606,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * API returned, and the control is going to soon return to Redis by invoking
  * the different events callbacks.
  *
+ * 这个函数在事件循环多路复用API返回后立即被调用，并且控件将通过调用不同的事件回调函数很快返回到Redis。
+ *
  */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
@@ -2613,6 +2615,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
     /* Do NOT add anything above moduleAcquireGIL !!! */
 
     /* Aquire the modules GIL so that their threads won't touch anything. */
+    // 获取模块 GIL 以便它们的线程不会接触任何东西。
     if (!ProcessingEventsWhileBlocked) {
         if (moduleCount()) moduleAcquireGIL();
     }
@@ -2846,7 +2849,7 @@ void initServerConfig(void) {
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock, lruclock);
 
-    // 3 初始化并设置保存条件
+    // 3 初始化并设置 RDB 触发自动保存条件
     resetServerSaveParams();
 
     // rdb 持久化配置
@@ -2887,7 +2890,7 @@ void initServerConfig(void) {
     server.failover_state = NO_FAILOVER;
 
     /* Client output buffer limits */
-    // 6 设置客户端的输出缓冲区限制
+    // 6 设置客户端的输出缓冲区限制，目前有三种类型的输出缓冲区
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
@@ -3200,6 +3203,8 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
 /* Initialize a set of file descriptors to listen to the specified 'port'
  * binding the addresses specified in the Redis server configuration.
  *
+ * 初始化一组文件描述符以监听绑定在 Redis 服务器配置中指定的地址的指定“端口”。
+ *
  * The listening file descriptors are stored in the integer array 'fds'
  * and their number is set in '*count'.
  *
@@ -3334,7 +3339,7 @@ void initServer(void) {
     }
 
     /* Initialization after setting defaults from the config system. */
-    // 1 从配置系统设置默认值 后进行初始化。
+    // 1 从配置系统设置默认值后进行初始化。即对 Redis 运行所需的属性进一步初始化
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.hz = server.config_hz;
     server.pid = getpid();
@@ -3343,15 +3348,17 @@ void initServer(void) {
     server.current_client = NULL;
     server.errors = raxNew();
     server.fixed_time_expire = 0;
+
+    // 客户端列表
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
 
-    // 初始化客户端等待读链表
+    // 初始化全局客户端等待读链表
     server.clients_pending_write = listCreate();
-    // 初始化客户端等待写链表
+    // 初始化全局客户端等待写链表
     server.clients_pending_read = listCreate();
 
 
@@ -3365,7 +3372,9 @@ void initServer(void) {
     server.client_pause_type = 0;
     server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
-    server.system_memory_size = zmalloc_get_memory_size(); // 获取物理内存大小，以字节为单位
+
+    // 获取物理内存大小，以字节为单位
+    server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
 
@@ -3396,12 +3405,13 @@ void initServer(void) {
     }
 
 
+    // 分配 Redis 数据库，一个 Redis 实例可以同时运行多个数据库
     server.db = zmalloc(sizeof(redisDb) * server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
 
     // 使用 listenToPort 将所有需要监听的端口进行 socket 建立以及 bind，然后 listen
-    // 4 开始 Socket 监听。通过监听服务器 Socket ，程序可以获得客户端文件描述符并存储到 server 全局变量中。后续，程序就可以拿着这一步获得的文件描述符区注册IO事件了。
+    // 4 开始 Socket 监听。通过监听服务器 Socket ，程序可以获得客户端文件描述符并存储到 server 全局变量中。后续，程序就可以拿着这一步获得的文件描述符去注册IO事件了。
     // 4.1 TCP
     if (server.port != 0 &&
         listenToPort(server.port, &server.ipfd) == C_ERR) {
@@ -3429,6 +3439,7 @@ void initServer(void) {
     }
 
     /* Abort if there are no listening sockets at all. */
+    // 如果根本没有监听套接字，则中止。
     if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
@@ -3444,7 +3455,9 @@ void initServer(void) {
         //创建过期key的信息表
         server.db[j].expires = dictCreate(&dbExpiresDictType, NULL);
         server.db[j].expires_cursor = 0;
+        // 为被 BLPOP 阻塞的 key 创建信息表
         server.db[j].blocking_keys = dictCreate(&keylistDictType, NULL);
+        // 为将执行 PUSH 的阻塞 key 创建信息表
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         //为被MULTI/WATCH操作监听的key创建信息表
         server.db[j].watched_keys = dictCreate(&keylistDictType, NULL);
@@ -3454,7 +3467,9 @@ void initServer(void) {
         listSetFreeMethod(server.db[j].defrag_later, (void (*)(void *)) sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    // 记录 所有频道的订阅关系
     server.pubsub_channels = dictCreate(&keylistDictType, NULL);
+    // 记录 所有模式的订阅关系
     server.pubsub_patterns = dictCreate(&keylistDictType, NULL);
     server.cronloops = 0;
     server.in_eval = 0;
@@ -3473,7 +3488,10 @@ void initServer(void) {
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
     server.child_info_nread = 0;
+
+    // 释放旧的 AOF 重写缓存，并初始化一个新的 AOF 重写缓冲区
     aofRewriteBufferReset();
+    // 初始化新的 AOF 缓冲区
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
@@ -3515,7 +3533,7 @@ void initServer(void) {
      * expired keys and so forth.
      */
     // 6 向前面刚刚创建好的事件循环中注册一个timer事件，并配置成可以周期性地执行一个回调函数：serverCron 。这是我们许多后台操作的方式，比如客户端超时，收回未访问的过期键等等。由于Redis只有一个主线程，因此这个函数周期性的执行也是在这个线程内，它由事件循环来驱动（即在合适的时机调用）。
-    // 需要说明的是，Redis 作为一个单线程架构模型（整个服务以主线程为主线），它如果想调度一些异步执行的任务，比如周期性任务，处理依赖事件循环机制，没有其它方法。
+    // 需要说明的是，Redis 作为一个单线程架构模型（整个服务以主线程为主线），它如果想调度一些异步执行的任务，比如周期性任务，除了依赖事件循环机制，没有其它方法。
     // 不过想想，是不是可以像 bio / IO 线程那样，增加一个时间任务线程呢？ 原则上是可以的，只不过这里面涉及到了并发执行问题需要解决。Redis 选择走简单路线，相比处理并发问题，直接使用主线程执行时间任务就行了。
     // 本质上来说，Redis 处理时间事件也是需要主线程来处理的，主线程要轮询时间时间链表，找到到达的然后执行。当处理文件事件用时过多，就会导致触发时间不一定很及时，一般时间事件触发要比真实的晚。
 
@@ -3528,7 +3546,7 @@ void initServer(void) {
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
     // 7 为服务端套接字关联连接应答处理器，用于处理客户端的 connect() 调用
-    // 向 事件循环中注册 AE_READABLE 事件，处理函数为 acceptTcpHandler 。
+    // 即向 事件循环中注册 AE_READABLE 事件，处理函数为 acceptTcpHandler 。
 
     // 7.1 对于 TCP 连接的监听,
     if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
@@ -3562,8 +3580,8 @@ void initServer(void) {
      *
      * 用于在事件循环中，进行前置和后置处理
      *
-     * beforeSleep：
-     * afterSleep：
+     * beforeSleep 函数
+     * afterSleep 函数
      */
     aeSetBeforeSleepProc(server.el, beforeSleep);
     aeSetAfterSleepProc(server.el, afterSleep);
@@ -3602,6 +3620,8 @@ void initServer(void) {
 
     // 初始化慢查询功能
     slowlogInit();
+
+    // 延迟监视器初始化。
     latencyMonitorInit();
 
     /* Initialize ACL default password if it exists */
@@ -6267,7 +6287,10 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
+ * argv[0] contains "redis-sentinel".
+ *
+ * 根据 Redis 配置的参数，检查是否设置了哨兵模式
+ */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
 
@@ -6277,12 +6300,18 @@ int checkForSentinelMode(int argc, char **argv) {
     return 0;
 }
 
-/* Function called at startup to load RDB or AOF file in memory. */
+/* Function called at startup to load RDB or AOF file in memory.
+ *
+ * 启动时调用的函数，用于在内存中加载 RDB 或 AOF 文件。
+ */
 void loadDataFromDisk(void) {
     long long start = ustime();
+    // 优先加载 AOF 文件
     if (server.aof_state == AOF_ON) {
         if (loadAppendOnlyFile(server.aof_filename) == C_OK)
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float) (ustime() - start) / 1000000);
+
+        // 没有开启 AOF ，再加载 RDB 文件
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
@@ -6581,14 +6610,15 @@ int main(int argc, char **argv) {
      * race condition with threads that could be creating files or directories.
      */
     umask(server.umask = umask(0777));
+
+    // 设置随机种子。代码里的随机程序都会在这个随机种子的基础上。
     uint8_t hashseed[16];
     getRandomBytes(hashseed, sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
 
 
     //----------------- 二、检查哨兵模式，并检查是否要执行 RDB 检测或 AOF 检测 -----------/
-    // 检查服务器是否以 Sentinel 模式启动
-    // 这一点非常重要，因为 Sentinel 和普通的实例不同
+    // 检查服务器是否以 Sentinel 模式启动。这一点非常重要，因为 Sentinel 和普通的实例不同
     server.sentinel_mode = checkForSentinelMode(argc, argv);
 
     // 2  初始化服务器配置，为各种参数设置默认值
@@ -6611,6 +6641,7 @@ int main(int argc, char **argv) {
      * data structures with master nodes to monitor. */
     // 3 如果服务器以 Sentinel 模式启动，那么进行 Sentinel 功能相关的初始化，并为要监视的主服务器创建一些相应的数据结构
     if (server.sentinel_mode) {
+        // 初始化哨兵的配置
         initSentinelConfig();
 
         // 执行哨兵模式初始化
@@ -6637,6 +6668,7 @@ int main(int argc, char **argv) {
         sds options = sdsempty();
 
         /* Handle special options --help and --version */
+        // 处理特殊选项 -h、-v 和 --test-memory
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0)
             version();
@@ -6657,6 +6689,7 @@ int main(int argc, char **argv) {
          * Precedence wise, File, stdin, explicit options -- last config is the one that matters.
          *
          * First argument is the config file name? */
+        // 如果第一个参数 argv[1] 不是以 "--" 开头，那么它应该是一个配置文件
         if (argv[1][0] != '-') {
             /* Replace the config file in server.exec_argv with its absolute path. */
             server.configfile = getAbsolutePath(argv[1]);
@@ -6664,6 +6697,8 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
+
+        // 对用户给定的其余选项进行分析，并将分析所得的字符串追加稍后载入的配置文件的内容之后，比如 --port 6380 会被分析为 "port 6380\n"
         while (j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc - 1)) {
@@ -6686,16 +6721,21 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        // 参数处理并赋值
+        // 对命令行参数和配置文件中的参数进行合并处理，然后为 Redis 各功能模块的关键参数设置合适的取值，以便 server 能高效地运行。
         loadServerConfig(server.configfile, config_from_stdin, options);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
+
         sdsfree(options);
     }
 
+    // 检查是否配置了哨兵配置文件，以及是否有写权限
     if (server.sentinel_mode) sentinelCheckConfigFile();
 
-    // Redis 可以配置以守护进程的方式启动（配置文件 daemonize = yes），也可以把 Redis 托管给 upstart 或 systemd 来启动 / 停止（supervised = upstart|systemd|auto）。
+    // Redis 可以配置以守护进程的方式启动（配置文件 daemonize = yes），
+    // 也可以把 Redis 托管给 upstart 或 systemd 来启动 / 停止（supervised = upstart|systemd|auto）。
     server.supervised = redisIsSupervised(server.supervised_mode);
+
+    // Redis 没有设置用系统管理工具 && 设置使用守护进程方式，那么就调用 daemonize 函数以守护进程的方式启动 Redis。
     int background = server.daemonize && !server.supervised;
 
     // 5 将服务器设置为守护进程
@@ -6809,7 +6849,7 @@ int main(int argc, char **argv) {
     }
 
     /* Warning the user about suspicious maxmemory setting. */
-    // 检查不正常的 maxmemory 配置
+    // 检查不正常的 maxmemory 配置，最大内存低于 1G 就会告警
     if (server.maxmemory > 0 && server.maxmemory < 1024 * 1024) {
         serverLog(LL_WARNING,
                   "WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?",

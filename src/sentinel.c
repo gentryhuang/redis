@@ -245,6 +245,7 @@ typedef struct sentinelRedisInstance {
 
 /* Main state. */
 struct sentinelState {
+    // 哨兵 ID
     char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. */
     uint64_t current_epoch;         /* Current epoch. */
     dict *masters;      /* Dictionary of master sentinelRedisInstances.
@@ -559,7 +560,10 @@ void initSentinel(void) {
 }
 
 /* This function is for checking whether sentinel config file has been set,
- * also checking whether we have write permissions. */
+ * also checking whether we have write permissions.
+ *
+ * 该功能用于检查是否设置了哨兵配置文件，也检查我们是否有写权限。
+ */
 void sentinelCheckConfigFile(void) {
     if (server.configfile == NULL) {
         serverLog(LL_WARNING,

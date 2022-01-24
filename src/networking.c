@@ -1697,6 +1697,7 @@ int writeToClient(client *c, int handler_installed) {
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE))
+            // 不跳出就继续写入
             break;
     }
     atomicIncr(server.stat_net_output_bytes, totwritten);
@@ -1759,7 +1760,10 @@ int handleClientsWithPendingWrites(void) {
     listNode *ln;
     int processed = listLength(server.clients_pending_write);
 
+    // 从  全局等待写队列 中获取待写回的客户端
     listRewind(server.clients_pending_write, &li);
+
+    // 遍历每一个待写回的客户端
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
@@ -1773,10 +1777,12 @@ int handleClientsWithPendingWrites(void) {
         if (c->flags & CLIENT_CLOSE_ASAP) continue;
 
         /* Try to write buffers to the client socket. */
+        // 调用writeToClient将当前客户端的输出缓冲区数据写回
         if (writeToClient(c, 0) == C_ERR) continue;
 
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
+        // 如果还有待写回数据，那么需要重新关联写事件处理函数
         if (clientHasPendingReplies(c)) {
             int ae_barrier = 0;
             /* For the fsync=always policy, we want that a given FD is never
@@ -1788,11 +1794,21 @@ int handleClientsWithPendingWrites(void) {
                 server.aof_fsync == AOF_FSYNC_ALWAYS) {
                 ae_barrier = 1;
             }
+
+            /*
+             * 相当于
+             *  // 创建可写事件的监听，以及设置回调函数
+             *  if (aeCreateFileEvent(server.el, c->fd, ae_flags,sendReplyToClient, c) == AE_ERR)
+               {
+                    freeClientAsync(c);
+                }
+             */
             if (connSetWriteHandlerWithBarrier(c->conn, sendReplyToClient, ae_barrier) == C_ERR) {
                 freeClientAsync(c);
             }
         }
     }
+
     return processed;
 }
 
