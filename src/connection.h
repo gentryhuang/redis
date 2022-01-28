@@ -167,6 +167,8 @@ static inline int connRead(connection *conn, void *buf, size_t buf_len) {
  * If NULL, the existing handler is removed.
  *
  * 注册一个写处理程序，以便在连接可写时调用。如果为NULL，则删除现有的处理程序。
+ * todo 特别说明： connSetWriteHandler 函数最终会映射为 connSocketSetWriteHandler 函数，
+ * connSocketSetWriteHandler 函数会调用 aeCreateFileEvent 函数创建 AE_WRITABLE 事件。
  */
 static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc func) {
     return conn->type->set_write_handler(conn, func, 0);

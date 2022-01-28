@@ -4302,14 +4302,14 @@ int processCommand(client *c) {
         serverAssert(!server.in_eval);
     }
 
-    // 将 Redis 命令替换成 module 中想要替换的命令
+    // 1 将 Redis 命令替换成 module 中想要替换的命令
     moduleCallCommandFilters(c);
 
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    // 特别处理 quit 命令
+    // 2 特别处理 quit 命令
     if (!strcasecmp(c->argv[0]->ptr, "quit")) {
         addReply(c, shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -4318,9 +4318,10 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    // 根据命令名称从命令表中查找命令，并进行命令合法性检查，以及命令参数个数检查
+    // 3 根据命令名称从命令表中查找命令，并进行命令合法性检查，以及命令参数个数检查
     // 命令表是一个哈希表，它是在 initServerConfig 函数中初始化的
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+
     // 没找到指定的命令
     if (!c->cmd) {
         sds args = sdsempty();
@@ -5929,7 +5930,7 @@ void createPidFile(void) {
 }
 
 /**
- * 收获进程
+ * 守护进程
  */
 void daemonize(void) {
     int fd;

@@ -189,18 +189,21 @@ void bioInit(void) {
 
 /**
  * 为类型为 type 的 BIO 线程添加任务
+ * 添加任务并唤醒阻塞等待任务的线程
  */
 void bioSubmitJob(int type, struct bio_job *job) {
     job->time = time(NULL);
     pthread_mutex_lock(&bio_mutex[type]);
 
-    // 将新任务加入到对应类型的队列中
+    // 1 将新任务加入到对应类型的任务队列中
     listAddNodeTail(bio_jobs[type], job);
 
-    // 记录当前类型队列中待执行的任务数
+    // 2 记录当前类型任务队列中待执行的任务数
     bio_pending[type]++;
 
+    // 3 唤醒阻塞等待任务的线程
     pthread_cond_signal(&bio_newjob_cond[type]);
+
     pthread_mutex_unlock(&bio_mutex[type]);
 }
 
@@ -211,7 +214,10 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     va_list valist;
     /* Allocate memory for the job structure and all required
      * arguments */
+    // 创建任务
     struct bio_job *job = zmalloc(sizeof(*job) + sizeof(void *) * (arg_count));
+
+    // 释放给定参数的函数
     job->free_fn = free_fn;
 
     va_start(valist, arg_count);
@@ -222,6 +228,7 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     }
     va_end(valist);
 
+    // 调用添加任务到对应类型的任务队列中的函数
     bioSubmitJob(BIO_LAZY_FREE, job);
 }
 
@@ -229,9 +236,11 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
  * 创建关闭文件异步任务
  */
 void bioCreateCloseJob(int fd) {
+    // 创建新任务
     struct bio_job *job = zmalloc(sizeof(*job));
     job->fd = fd;
 
+    // 调用添加任务到对应类型的任务队列中的函数
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
 
@@ -239,9 +248,11 @@ void bioCreateCloseJob(int fd) {
  * 创建 AOF异步刷盘任务 并加入到对应的任务队列中
  */
 void bioCreateFsyncJob(int fd) {
+    // 创建新任务
     struct bio_job *job = zmalloc(sizeof(*job));
     job->fd = fd;
 
+    // 调用添加任务到对应类型的任务队列中的函数
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
 
@@ -287,6 +298,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
     makeThreadKillable();
 
+    // 处理任务之前锁定，如果当前线程没有任务要处理，将在 pthread_cond_wait() 中阻塞。
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
@@ -310,7 +322,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         listNode *ln;
 
         /* The loop always starts with the lock hold.*/
-        // 等待被激活。条件是 bio_jobs[type] 任务队列中任务数 不为 0。尽量避免线程空转 CPU
+        // 1 等待被激活。条件是 bio_jobs[type] 任务队列中任务数 不为 0。尽量避免线程空转 CPU
         if (listLength(bio_jobs[type]) == 0) {
             // 阻塞等待任务的到来
             pthread_cond_wait(&bio_newjob_cond[type], &bio_mutex[type]);
@@ -318,21 +330,22 @@ void *bioProcessBackgroundJobs(void *arg) {
         }
 
         /* Pop the job from the queue. */
-        // 从当前 type 类型的 bio 线程的任务队列中取出任务
+        // 2 从当前 type 类型的 bio 线程的任务队列中取出任务
         ln = listFirst(bio_jobs[type]);
         job = ln->value;
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
+        // 有任务要处理，那么就解锁
         pthread_mutex_unlock(&bio_mutex[type]);
 
         /* Process the job accordingly to its type. 根据作业类型处理作业, */
-        /**---------  判断当前处理的后台任务类型是哪一种 ------*/
+        /**---------  3 判断当前处理的后台任务类型是哪一种 ------*/
 
-        // 1 关闭文件任务，则调用close函数
+        // 3.1 关闭文件任务，则调用close函数
         if (type == BIO_CLOSE_FILE) {
             close(job->fd);
 
-            // 2 AOF 异步刷盘任务，则调用redis_fsync函数
+            // 3.2 AOF 异步刷盘任务，则调用redis_fsync函数
         } else if (type == BIO_AOF_FSYNC) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
@@ -351,7 +364,7 @@ void *bioProcessBackgroundJobs(void *arg) {
                 atomicSet(server.aof_bio_fsync_status, C_OK);
             }
 
-            // 3 惰性删除任务，那根据任务的参数分别调用不同的惰性删除函数执行
+            // 3.3 惰性删除任务，那根据任务的参数分别调用不同的惰性删除函数执行
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);
 
@@ -360,14 +373,15 @@ void *bioProcessBackgroundJobs(void *arg) {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
 
-        // 任务处理后，释放空间
+        // 3 任务处理后，释放其空间
         zfree(job);
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
+        // 4 在处理下个任务之前再次锁定，如果当前线程没有任务要处理，将在 pthread_cond_wait() 中再次阻塞。
         pthread_mutex_lock(&bio_mutex[type]);
 
-        // 删除任务节点
+        // 5 任务执行完成后，删除任务队列中的任务节点
         listDelNode(bio_jobs[type], ln);
         // 将对应的等待任务个数减一。
         bio_pending[type]--;

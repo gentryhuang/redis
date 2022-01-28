@@ -966,6 +966,8 @@ typedef struct client {
     sds querybuf;           /* Buffer we use to accumulate client queries. */
 
     size_t qb_pos;          /* The position we have read in querybuf. */
+
+    // 用于主从节点命令同步的缓冲区
     sds pending_querybuf;   /* If this client is flagged as master, this buffer
                                represents the yet not applied portion of the
                                replication stream that we are receiving from
@@ -1493,6 +1495,7 @@ struct redisServer {
     //------------------- IO 线程全局队列 --------------------------/
 
     list *slaves, *monitors;    /* List of slaves and MONITORs */
+    // Server 当前的客户端
     client *current_client;     /* Current client executing the command. */
 
 

@@ -280,7 +280,9 @@ int canFeedReplicaReplBuffer(client *replica) {
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMasterStream()
  *
- * 将写命令传播到从节点，并填充复制积压缓冲区。如果实例是从属节点，并且附加了子从属节点，我们使用replicationFeedSlavesFromMasterStream()
+ * 将写命令传播到从节点，并填充复制积压缓冲区。
+ *
+ * 如果实例是从属节点，并且附加了子从属节点，我们使用replicationFeedSlavesFromMasterStream()
  *
  */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
