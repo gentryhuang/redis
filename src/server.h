@@ -1431,8 +1431,11 @@ struct redisServer {
     aeEventLoop *el;
     rax *errors;                /* Errors table */
 
-    // 最近一次使用时钟
+    // 最新的 lru 时钟（秒精度），是服务器时间缓存，随着时间事件更新，该时间不是实时的。用于 LRU 淘汰策略。
+    // 具体是，用于计算键的 idle 时长，即 redisServer.lruclok - redisObject.lru
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
+
+
     volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
@@ -1860,9 +1863,15 @@ struct redisServer {
 
     // 最大并发客户端数
     unsigned int maxclients;            /* Max number of simultaneous clients */
+
+    // 内存淘汰相关
+    // 最大可使用的内存字节数
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
+    // 内存淘汰策略
     int maxmemory_policy;           /* Policy for key eviction */
+    // 随机抽样数
     int maxmemory_samples;          /* Precision of random sampling */
+    // 淘汰处理的积极性。目的是控制大量淘汰内存空间阻塞客户端的时间
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
 
     /* lfu 对数计数器因子：默认值是 10 */
@@ -1901,12 +1910,19 @@ struct redisServer {
     /* List parameters */
     int list_max_ziplist_size;
     int list_compress_depth;
-    /* time cache */
+
+
+    /** time cache   时间缓存，秒级精度，会在每个时间事件中更新，因此精度并不高*/
     redisAtomic time_t unixtime; /* Unix time sampled every cron cycle. */
+
+
     time_t timezone;            /* Cached timezone. As set by tzset(). */
     int daylight_active;        /* Currently in daylight saving time. */
+
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
     ustime_t ustime;            /* 'unixtime' in microseconds. */
+
+
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
 
