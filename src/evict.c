@@ -63,6 +63,8 @@
  */
 struct evictionPoolEntry {
     // 空闲时间
+    // LRU 算法 - 用于记录待淘汰 key 的空闲时间
+    // LFU 算法 - 用于记录待淘汰 key 的访问频率
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
 
     // 键
@@ -791,6 +793,8 @@ int performEvictions(void) {
         // 选到了被淘汰的 key ，根据 Redis Server 的惰性删除配置，来执行同步删除或异步删除
         if (bestkey) {
             db = server.db + bestdbid;
+
+            // 创建字符串对象
             robj *keyobj = createStringObject(bestkey, sdslen(bestkey));
 
             //将删除key的信息传递给从库和AOF文件
@@ -805,6 +809,8 @@ int performEvictions(void) {
              *
              * AOF and Output buffer memory will be freed eventually so
              * we only care about memory used by the key space. */
+
+            // 删除前，计算当前使用的内存量
             delta = (long long) zmalloc_used_memory();
             latencyStartMonitor(eviction_latency);
 
@@ -819,10 +825,15 @@ int performEvictions(void) {
 
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del", eviction_latency);
+
+            // 删除后，计算此时的内存使用量，并计算删除操作导致的内存使用量差值。
+            // 这个差值就是通过删除操作而被释放的内存量
             delta -= (long long) zmalloc_used_memory();
 
-            // 累加已释放内存大小
+            // 更新已释放内存大小
             mem_freed += delta;
+
+
             server.stat_evictedkeys++;
             signalModifiedKey(NULL, db, keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
@@ -830,6 +841,7 @@ int performEvictions(void) {
             decrRefCount(keyobj);
             keys_freed++;
 
+            // 每删除 16 个 key 后，统计下当前内存使用量
             if (keys_freed % 16 == 0) {
                 /* When the memory to free starts to be big enough, we may
                  * start spending so much time here that is impossible to
@@ -844,6 +856,7 @@ int performEvictions(void) {
                  * memory, since the "mem_freed" amount is computed only
                  * across the dbAsyncDelete() call, while the thread can
                  * release the memory all the time. */
+                // 如果是惰性释放，计算当前内存使用量是否不超过最大内存量，符合条件就停止淘汰数据流程。
                 if (server.lazyfree_lazy_eviction) {
                     if (getMaxmemoryState(NULL, NULL, NULL, NULL) == C_OK) {
                         break;

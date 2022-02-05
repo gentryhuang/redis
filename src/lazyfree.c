@@ -184,7 +184,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary.
      *
-     * 从 expires 中直接删除 key。
+     * 1 从 expires 中直接同步删除 key。
      * 清除待删除key的过期时间（从过期字典中删除一个键对象不会释放键的 sds，因为它是与主字典共享的。
      */
     if (dictSize(db->expires) > 0) dictDelete(db->expires, key->ptr);
@@ -193,17 +193,19 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * is actually just slower... So under a certain limit we just free
      * the object synchronously.
      *
-     * 把要删除的对象从数据库字典摘除，但不进行实际 free 操作
+     * 2 把要删除的键值对从数据库字典摘除，但不进行实际 free 操作。这也是 dictUnlink 函数的逻辑。
      */
     dictEntry *de = dictUnlink(db->dict, key->ptr);
+
+    // 3 评估释放键值对的值的代价，然后决定是否交给 bio 线程完成释放操作
     if (de) {
-        // 获取节点的值
+        // 3.1 获取节点的值
         robj *val = dictGetVal(de);
 
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key, val);
 
-        // todo 获取val对象所包含的元素个数（评估 free 当前 key 的代价）
+        // 3.2 todo 获取val对象所包含的元素个数（评估 free 当前 key 的代价）
         size_t free_effort = lazyfreeGetFreeEffort(key, val);
 
         /* If releasing the object is too much work, do it in the background
@@ -215,7 +217,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
          * through and reach the dictFreeUnlinkedEntry() call, that will be
          * equivalent to just calling decrRefCount(). */
         /**
-         * 如果 free 当前 key cost > 64，则将它放到 lazy free 的 list ，使用 bio 子线程进行实际 free 操作。不通过主线程运行。
+         * 3.3 如果 free 当前 key cost > 64，则将它放到 lazy free 的 list ，使用 bio 子线程进行实际 free 操作。不通过主线程运行。
          * 特别说明：String 类型返回的 free_effort 始终是 1，因此不会执行异步删除逻辑
          */
         if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
@@ -246,6 +248,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     } else {
         return 0;
     }
+
 }
 
 /* Free an object, if the object is huge enough, free it in async way. */

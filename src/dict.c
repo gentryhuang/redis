@@ -292,6 +292,8 @@ int dictTryExpand(dict *d, unsigned long size) {
 int dictRehash(dict *d, int n) {
 
     // 1 限制访问的最大空桶数，避免了对 Redis 性能的影响
+    // 即 如果 rehash 过程中已经跳过了 empty_visits 数量的空 bucket，那么本次 dictRehash 的执行就会直接返回了，
+    // 而不会再查找 bucket。这样设计的目的，也是为了避免本次 rehash 的执行一直无法结束，影响正常的请求处理。
     int empty_visits = n * 10; /* Max number of empty buckets to visit. */
 
     // 2 只可以在 rehash 进行中时执行
@@ -311,7 +313,7 @@ int dictRehash(dict *d, int n) {
             // 递增 rehashidx 的值
             d->rehashidx++;
 
-            // 限制一轮访问空桶的次数
+            // 限制访问空桶的次数
             if (--empty_visits == 0) return 1;
         }
 
