@@ -2260,6 +2260,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
+    // 执行推迟的 AOF 重写的任务
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled) {
         rewriteAppendOnlyFileBackground();
@@ -2294,12 +2295,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
 
         /* Trigger an AOF rewrite if needed. */
+        // 触发 AOF 重写
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
             server.aof_rewrite_perc &&
+            // AOF 文件大小大于重新的阈值
             server.aof_current_size > server.aof_rewrite_min_size) {
+
+            // 上次执行 AOF 重写后 AOF 文件大小
             long long base = server.aof_rewrite_base_size ?
                              server.aof_rewrite_base_size : 1;
+            // 增加比例
             long long growth = (server.aof_current_size * 100 / base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE, "Starting automatic rewriting of AOF on %lld%% growth", growth);
@@ -2356,6 +2362,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Stop the I/O threads if we don't have enough pending work. */
+    // 没有足够多的 待写客户端数量
     stopThreadedIOIfNeeded();
 
     /* Resize tracking keys table if needed. This is also done at every

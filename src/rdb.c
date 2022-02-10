@@ -806,6 +806,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         /* Save a string value */
         if ((n = rdbSaveStringObject(rdb,o)) == -1) return -1;
         nwritten += n;
+
     } else if (o->type == OBJ_LIST) {
         /* Save a list value */
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -1073,18 +1074,23 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actually saved 1 is returned. */
+ * On success if the key was actually saved 1 is returned.
+ *
+ * 将键值对实际写入 RDB 文件
+ */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
     /* Save the expire time */
+    // 写入过期时间相关
     if (expiretime != -1) {
         if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
         if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
     }
 
     /* Save the LRU info. */
+    // 写入 LRU 空闲时间相关
     if (savelru) {
         uint64_t idletime = estimateObjectIdleTime(val);
         idletime /= 1000; /* Using seconds is enough and requires less space.*/
@@ -1093,6 +1099,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     }
 
     /* Save the LFU info. */
+    // 写入 LFU 访问频率相关
     if (savelfu) {
         uint8_t buf[1];
         buf[0] = LFUDecrAndReturn(val);
@@ -1105,8 +1112,13 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     }
 
     /* Save type, key, value */
+    // 实际写入键值对，具体内容如下：
+
+    // 写入键值对的类型标识，会根据键值对的 value 类型来决定写入到 RDB 中的键值对类型标识
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
+    // 写入键值对的 key
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
+    // 写入键值对的 value
     if (rdbSaveObject(rdb,val,key) == -1) return -1;
 
     /* Delay return if required (for testing) */
@@ -1250,6 +1262,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
+    // 3 因为 Redis Server 上的键值对可能被保存在不同的数据库中，因此需要执行一个循环，遍历每个数据库，将其中的键值对写入 RDB 文件
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
@@ -1257,10 +1270,12 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         di = dictGetSafeIterator(d);
 
         /* Write the SELECT DB opcode */
+        // 3.1 将 SELECTDB 操作码和对应的数据库编号写入 RDB 文件。这样一来，程序在解析 RDB 文件时，就可以知道接下来的键值对是属于哪个数据库了
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
         if (rdbSaveLen(rdb,j) == -1) goto werr;
 
         /* Write the RESIZE DB opcode. */
+        // 3.2 写入 RESIZEDB 操作码，用来标识全局哈希表和过期 key 哈希表中键值对数量的记录
         uint64_t db_size, expires_size;
         db_size = dictSize(db->dict);
         expires_size = dictSize(db->expires);
@@ -1269,18 +1284,25 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
+        // 3.3 取出当前数据库中的每一个键值对，并调用 rdbSaveKeyValuePair 函数将它写入 RDB 文件
         while((de = dictNext(di)) != NULL) {
+            // 键
             sds keystr = dictGetKey(de);
+            // 值
             robj key, *o = dictGetVal(de);
             long long expire;
 
             initStaticStringObject(key,keystr);
+            // 尝试取出键的过期时间
             expire = getExpire(db,&key);
+
+            // 将键值对写入 RDB 文件
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
              * order to have a smaller final write. */
+            // todo 当此 RDB 作为 AOF 重写的一部分生成时，在重写时将累积的差异从父进程移动到子进程，以便获得更小的最终写入。
             if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
                 rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
             {
@@ -1321,10 +1343,12 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
+    // 4 当所有键值对都写入 RDB 文件后，就可以写文件尾部内容了
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
 
     /* CRC64 checksum. It will be zero if checksum computation is disabled, the
      * loading code skips the check in this case. */
+    // 5 写入校验值
     cksum = rdb->cksum;
     memrev64ifbe(&cksum);
     if (rioWrite(rdb,&cksum,8) == 0) goto werr;
@@ -2784,7 +2808,13 @@ void killRDBChild(void) {
 }
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
- * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
+ * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state.
+ *
+ * 1 Redis Server 在采用不落盘方式传输 RDB 文件进行主从复制时，创建 RDB 文件的入口函数。
+ * 2 会被 startBgsaveForReplication 函数调用。
+ * 3 和 rdbSaveBackground 函数类似，rdbSaveToSlavesSockets 函数也是通过 fork 创建子进程，让子进程生成 RDB。
+ *   不过和 rdbSaveBackground 函数不同的是，rdbSaveToSlavesSockets 函数是通过网络以字节流的形式，直接发送 RDB 文件的二进制数据给从节点。
+ */
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     listNode *ln;
     listIter li;

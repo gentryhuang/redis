@@ -1462,6 +1462,8 @@ struct redisServer {
                                    client blocked on a module command needs
                                    to be processed. */
     pid_t child_pid;            /* PID of current child */
+
+    // 当前子进程类型
     int child_type;             /* Type of current child */
     client *module_client;      /* "Fake" client to call Redis from modules */
     /* Networking */
@@ -1687,15 +1689,23 @@ struct redisServer {
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
 
-    /* AOF pipes used to communicate between parent and child during rewrite. */
+    /* AOF pipes used to communicate between parent and child during rewrite.
+     *
+     * AOF 管道用于在重写期间在父子之间进行通信
+     */
     int aof_pipe_write_data_to_child;
     int aof_pipe_read_data_from_parent;
     int aof_pipe_write_ack_to_parent;
     int aof_pipe_read_ack_from_child;
     int aof_pipe_write_ack_to_child;
     int aof_pipe_read_ack_from_parent;
+    // 主进程是否停止发送新写命令
     int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
                                       to child process. */
+
+    // 用于累加保存 AOF 差异数据。
+    // AOF 重写函数 rewriteAppendOnlyFile 的执行过程最后，
+    // aof_child_diff 字符串会被写入 AOF 重写日志文件，以便我们在使用 AOF 重写日志时，能尽可能地恢复重写期间收到的操作。
     sds aof_child_diff;             /* AOF diff accumulator child side. */
 
 
