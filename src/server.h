@@ -1830,16 +1830,19 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
-    /* Replication (slave) */
-    char *masteruser;               /* AUTH with this user and masterauth with master */
-    sds masterauth;                 /* AUTH with this password with master */
-    char *masterhost;               /* Hostname of master */
+
+    /* Replication (slave)  复制相关*/
+    char *masteruser;               /* AUTH with this user and masterauth with master   用于和主库进行验证的秘密*/
+    sds masterauth;                 /* AUTH with this password with master              主库主机名*/
+    char *masterhost;               /* Hostname of master                               主库端口号*/
     int masterport;                 /* Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    client *master;     /* Client that is master for this slave */
-    client *cached_master; /* Cached master to be reused for PSYNC. */
+
+    client *master;     /* Client that is master for this slave                         从库上用来和主库连接的客户端*/
+    client *cached_master; /* Cached master to be reused for PSYNC.                     从库上缓存的主库信息*/
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
-    int repl_state;          /* Replication status if the instance is a slave */
+    int repl_state;          /* Replication status if the instance is a slave           从库的复制状态机*/
+
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */

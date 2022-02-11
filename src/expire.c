@@ -273,6 +273,7 @@ void activeExpireCycle(int type) {
          * we scanned. The percentage, stored in config_cycle_acceptable_stale
          * is not fixed, but depends on the Redis configured "expire effort". */
         do {
+
             unsigned long num, slots;
             long long now, ttl_sum;
             int ttl_samples;

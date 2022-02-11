@@ -64,9 +64,10 @@ void aofClosePipes(void);
  * 所以这里使用多个大小为 AOF_RW_BUF_BLOCK_SIZE 的空间来保存命令。
  * ------------------------------------------------------------------------- */
 
-//每个缓冲块的大小
+//每个缓冲块的大小为 10M
 #define AOF_RW_BUF_BLOCK_SIZE (1024*1024*10)    /* 10 MB per block */
 
+// AOF 读写块的结构
 typedef struct aofrwblock {
     // 缓存块已使用字节数和可用字节数
     unsigned long used, free;

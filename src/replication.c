@@ -2188,18 +2188,26 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
 #define PSYNC_NOT_SUPPORTED 4
 #define PSYNC_TRY_LATER 5
 
+
+/*
+ * 从库向主库发送数据同步的命令。
+ *
+ * 主库收到命令后，会根据从库发送的主库 ID、复制进度值 offset，来判断是进行全量复制还是增量复制，或者是返回错误。
+ */
 int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     char *psync_replid;
     char psync_offset[32];
     sds reply;
 
     /* Writing half */
+    // 发送 PSYNC 命令
     if (!read_reply) {
         /* Initially set master_initial_offset to -1 to mark the current
          * master replid and offset as not valid. Later if we'll be able to do
          * a FULL resync using the PSYNC command we'll set the offset at the
          * right value, so that this information will be propagated to the
          * client structure representing the master into server.master. */
+        // 从库第一次和主库同步时，设置 offset 为 -1
         server.master_initial_offset = -1;
 
         if (server.cached_master) {
@@ -2215,6 +2223,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         /* Issue the PSYNC command, if this is a master with a failover in
          * progress then send the failover argument to the replica to cause it
          * to become a master */
+        // 发出 PSYNC 命令，如果这是一个正在进行故障转移的主服务器，则将故障转移参数发送到副本以使其成为主服务器
         if (server.failover_state == FAILOVER_IN_PROGRESS) {
             reply = sendCommand(conn, "PSYNC", psync_replid, psync_offset, "FAILOVER", NULL);
         } else {
@@ -2231,6 +2240,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     }
 
     /* Reading half */
+    // 读取主库的响应
     reply = receiveSynchronousResponse(conn);
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
@@ -2241,6 +2251,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     connSetReadHandler(conn, NULL);
 
+    // 主库返回 FULLRESYNC ，全量复制
     if (!strncmp(reply, "+FULLRESYNC", 11)) {
         char *replid = NULL, *offset = NULL;
 
@@ -2271,9 +2282,12 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         /* We are going to full resync, discard the cached master structure. */
         replicationDiscardCachedMaster();
         sdsfree(reply);
+
+
         return PSYNC_FULLRESYNC;
     }
 
+    //主库返回CONTINUE，执行增量复制
     if (!strncmp(reply, "+CONTINUE", 9)) {
         /* Partial resync was accepted. */
         serverLog(LL_NOTICE,
@@ -2319,6 +2333,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
          * PSYNC from the persistence file, our replication backlog could
          * be still not initialized. Create it. */
         if (server.repl_backlog == NULL) createReplicationBacklog();
+
         return PSYNC_CONTINUE;
     }
 
@@ -2338,6 +2353,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         return PSYNC_TRY_LATER;
     }
 
+    // 主库返回错误信息
     if (strncmp(reply, "-ERR", 4)) {
         /* If it's not an error, log the unexpected event. */
         serverLog(LL_WARNING,
@@ -2628,6 +2644,7 @@ void syncWithMaster(connection *conn) {
     }
 
     /* Setup the non blocking download of the bulk file. */
+    //如果执行全量复制的话，创建readSyncBulkPayload回调函数
     if (connSetReadHandler(conn, readSyncBulkPayload)
         == C_ERR) {
         char conninfo[CONN_INFO_LEN];
@@ -2637,6 +2654,7 @@ void syncWithMaster(connection *conn) {
         goto error;
     }
 
+    // 将从库状态设置为 REPL_STATE_TRANSFER
     server.repl_state = REPL_STATE_TRANSFER;
     server.repl_transfer_size = -1;
     server.repl_transfer_read = 0;
