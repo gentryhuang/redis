@@ -1640,7 +1640,7 @@ int incrementallyRehash(int dbid) {
  * for dict.c to resize the hash tables accordingly to the fact we have an
  * active fork child running.
  *
- * 根据当前是否有 RDB 子进程或者 AOF 子进程，设置是否允许 rehash 扩容功能
+ * 根据当前是否有 RDB 子进程或者 AOF 重写子进程，设置是否允许 rehash 扩容功能
  */
 void updateDictResizePolicy(void) {
     if (!hasActiveChildProcess())
@@ -1667,7 +1667,7 @@ const char *strChildType(int type) {
 /* Return true if there are active children processes doing RDB saving,
  * AOF rewriting, or some side process spawned by a loaded module.
  *
- * 是否存在子进程，RDB子进程，或 AOF 子进程
+ * 是否存在子进程，RDB子进程，或 AOF 重写子进程
  */
 int hasActiveChildProcess() {
     return server.child_pid != -1;
@@ -2316,6 +2316,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Just for the sake of defensive programming, to avoid forgeting to
      * call this function when need. */
     // 设置是否可以进行 rehash 的标志
+    // 有 RDB 子进程或者 AOF 重写子进程，不允许 rehash 扩容功能
     updateDictResizePolicy();
 
 
@@ -2354,6 +2355,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
+    // 哨兵的时间事件处理函数 sentinelTimer
     if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */
@@ -3478,6 +3480,7 @@ void initServer(void) {
     server.pubsub_channels = dictCreate(&keylistDictType, NULL);
     // 记录 所有模式的订阅关系
     server.pubsub_patterns = dictCreate(&keylistDictType, NULL);
+
     server.cronloops = 0;
     server.in_eval = 0;
     server.in_exec = 0;
@@ -6301,9 +6304,12 @@ void memtest(size_t megabytes, int passes);
  */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
-
+    // 判断执行命令本身是否为 redis-sentinel
     if (strstr(argv[0], "redis-sentinel") != NULL) return 1;
+
+
     for (j = 1; j < argc; j++)
+        // 判断命令参数是否有 "-sentinel"
         if (!strcmp(argv[j], "--sentinel")) return 1;
     return 0;
 }
@@ -6736,7 +6742,7 @@ int main(int argc, char **argv) {
         sdsfree(options);
     }
 
-    // 检查是否配置了哨兵配置文件，以及是否有写权限
+    // 检查是否配置了哨兵配置文件，以及是否有写权限，否则直接退出
     if (server.sentinel_mode) sentinelCheckConfigFile();
 
     // Redis 可以配置以守护进程的方式启动（配置文件 daemonize = yes），
@@ -6845,10 +6851,12 @@ int main(int argc, char **argv) {
             }
             redisCommunicateSystemd("READY=1\n");
         }
+
+        // 哨兵模式
     } else {
         ACLLoadUsersAtStartup();
         InitServerLast();
-        // Sentinel 准备就绪后执行
+        // todo Sentinel 准备就绪后就可以启动了
         sentinelIsRunning();
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=Ready to accept connections\n");
