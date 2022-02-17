@@ -204,6 +204,8 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 
     serverAssertWithInfo(NULL, key, retval == DICT_OK);
     signalKeyAsReady(db, key, val->type);
+
+    // 集群模式下，维护 slots_keys_count
     if (server.cluster_enabled) slotToKeyAdd(key->ptr);
 }
 
@@ -358,6 +360,7 @@ int dbSyncDelete(redisDb *db, robj *key) {
         moduleNotifyKeyUnlink(key, val);
         dictFreeUnlinkedEntry(db->dict, de);
 
+        // 如果是集群模式，需要维护 slots_to_keys
         if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
@@ -2165,6 +2168,9 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     return j;
 }
 
+/*
+ * 根据 slot 获取其中实际的 key 的数量
+ */
 unsigned int countKeysInSlot(unsigned int hashslot) {
     return server.cluster->slots_keys_count[hashslot];
 }

@@ -2349,7 +2349,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Run the Redis Cluster cron. */
-    // 如果服务器运行在集群模式下，那么执行集群操作
+    // 如果服务器运行在集群模式下，那么执行集群操作，每 100ms 执行一次
+    // todo Gossip 协议是按一定频率随机选一些节点进行通信的
     run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
     }
@@ -4422,24 +4423,39 @@ int processCommand(client *c) {
      *  命令没有 key 参数
      *
      */
+    // 当前Redis server启用了Redis Cluster模式 &&
+    // 收到的命令不是来自于当前的主节点 &&
+    // 收到的命令包含了key参数，或者命令是 EXEC
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
           server.lua_caller->flags & CLIENT_MASTER) &&
         !(!cmdHasMovableKeys(c->cmd) && c->cmd->firstkey == 0 &&
+
+          // 当前节点收到 EXEC 命令，需要判断是否要进行请求重定向
           c->cmd->proc != execCommand)) {
+
         int hashslot;
         int error_code;
+
+        // 查询当前收到的命令能在哪个集群节点上进行处理
         clusterNode *n = getNodeByQuery(c, c->cmd, c->argv, c->argc,
                                         &hashslot, &error_code);
+
+        // 如果没有查询到，或者查询到的集群节点不是当前节点
         if (n == NULL || n != server.cluster->myself) {
+
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
             } else {
                 flagTransaction(c);
             }
+
+            // 执行请求重定向
             clusterRedirectClient(c, n, hashslot, error_code);
             c->cmd->rejected_calls++;
+
+            // 执行请求重定向后，直接结束。不再走后面的流程。
             return C_OK;
         }
     }

@@ -164,7 +164,7 @@ typedef struct clusterLink {
 #define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
 
 /* Message types.
- * 消息类型
+ * 节点间通信的消息类型
  *
  * Note that the PING, PONG and MEET messages are actually the same exact
  * kind of packet. PONG is the reply to ping, in the exact format as a PING,
@@ -176,16 +176,16 @@ typedef struct clusterLink {
  * 而 MEET 则是一种特殊的 PING 消息，用于强制消息的接收者将消息的发送者添加到集群中（如果节点尚未在节点列表中的话）
  */
 
-// PING
-#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+// PING 消息
+#define CLUSTERMSG_TYPE_PING 0          /* Ping 这是一个节点用来向其他节点发送信息的消息类型*/
 
 // PONG (回复 PING)
-#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) 对 PING 消息的回复*/
 
-// 请求将某个节点添加到集群中
-#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+// MEET 消息 （请求将节点添加到集群中）
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message 一个节点表示要加入集群的消息类型*/
 
-// 将某个节点标记为 FAIL
+// FAIL 消息 将某个节点标记为 FAIL
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
 
 // 通过发布与订阅功能广播消息
@@ -226,6 +226,8 @@ typedef struct clusterNodeFailReport {
 
 
 /*
+ * Redis Cluster 的每个集群节点都对应一个 clusterNode 的结构体
+ *
  * 1 每个节点都会使用一个 clusterNode 结构来记录自己的状态
  * 2 为集群中的所有其他节点（包括主节点和从节点）都创建一个相应的 clusterNode 结构，以此来记录其他节点的状态
  */
@@ -242,7 +244,7 @@ typedef struct clusterNode {
     // 节点当前的配置纪元，用于实现故障转移
     uint64_t configEpoch; /* Last configEpoch observed for this node */
 
-    // 由当前节点处理的槽。
+    // 记录当前节点负责哪些 slots
     // slots[i] = 1 表示节点负责处理槽 i
     // slots[i] = 0 表示节点不负责处理槽 i
     // 说明：因为取出和设置 slots 数组中的任意一个二进制位的值的复杂度仅为 O(1)，因此：
@@ -268,13 +270,13 @@ typedef struct clusterNode {
                                     if we don't have the master node in our
                                     tables. */
 
-    // 最后一次发送 PING 命令的时间戳
+    // 当前节点（该结构）最后一次发送 PING 命令的时间戳
     mstime_t ping_sent;      /* Unix time we sent latest ping */
 
-    // 当前 Redis 实例最后一次接收当前节点 PONG 回复的时间戳 ？
+    // 当前 Redis 实例最后一次接收当前节点(该结构) PONG 回复的时间戳
     mstime_t pong_received;  /* Unix time we received the pong */
 
-    // 当前 Redis 实例接收当前节点数据的时间戳
+    // 当前 Redis 实例接收当前节点(该结构)数据的时间戳
     mstime_t data_received;  /* Unix time we received any data */
 
     // 最后一次被设置为 FAIL 状态的时间戳
@@ -299,7 +301,7 @@ typedef struct clusterNode {
                                    if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
 
-    // 保存连接节点所需的有关信息，如 套接字描述符、输入/输出缓冲区
+    // 保存连接当前节点所需的有关信息，如 套接字描述符、输入/输出缓冲区
     clusterLink *link;          /* TCP/IP link with this node 和该节点的 tcp 连接*/
 
     // 一个链表，记录了所有其他节点对该节点的下线报告
@@ -308,6 +310,8 @@ typedef struct clusterNode {
 } clusterNode;
 
 /*
+ * Redis Cluster 针对整个集群设计了 clusterState 结构体
+ *
  * 每个节点都保存着一个 clusterState 结构，这个结构记录了在当前节点的视角下，集群目前所处的状态。
  *
  * 如：集群是在线还是下线，集群包含多少个节点，集群当前的配置纪元
@@ -353,7 +357,10 @@ typedef struct clusterState {
     // 2 clusterNode.slots 数组只记录了 clusterNode 结构所代表的节点的槽指派信息
     clusterNode *slots[CLUSTER_SLOTS];
 
+    // 记录某个 slot 中实际的 key 的数量
     uint64_t slots_keys_count[CLUSTER_SLOTS];
+
+    // rax 类型的字典树，用来记录 slot 和 key 的对应关系，可以通过它快速找到 slot 上有哪些 key
     rax *slots_to_keys;
 
     /* The following fields are used to take the slave state on elections. */
@@ -416,7 +423,7 @@ typedef struct clusterState {
  * to the first node, using the getsockname() function. Then we'll use this
  * address for all the next messages.
  *
- * 发送者发送的 MEET/PING/PONG 消息正文
+ * 发送者发送的 MEET/PING/PONG 消息的消息体
  *
  * 说明：
  * 1 每次发送 MEET、PING、PONG 消息时，发送者都从自己的已知节点列表中随机选出两个节点（可以是主节点或从节点），
@@ -431,17 +438,18 @@ typedef struct {
     // 被选中节点的名称
     char nodename[CLUSTER_NAMELEN]; // 40字节
 
-    // 发送者与被选中节点最后一次发送 PING 消息的时间戳
+    // 被选中节点最后一次发送 PING 消息的时间戳
     uint32_t ping_sent; // 4 字节
 
-    // 最后一次从该节点接收到 PONG 消息的时间戳
+    // 被选中节点最后一次接收到 PONG 消息的时间戳
     uint32_t pong_received; // 4 字节
 
     // 被选中节点的 IP 地址
     char ip[NET_IP_STR_LEN]; // 46 字节 /* IP address last time it was seen */
 
-    // 被选中节点的端口号
+    // 被选中节点和客户端端的通信端口
     uint16_t port;  // 2 字节            /* base port last time it was seen */
+    // 被选中节点用于集群通信的端口
     uint16_t cport;  // 2 字节           /* cluster port last time it was seen */
 
     // 被选中节点的标识
@@ -507,6 +515,8 @@ typedef struct {
 } clusterMsgModule;
 
 /*
+ * 定义了节点间通信的实际消息体
+ *
  * 消息内容，消息内容根据不同的情况分为多种类型：
  *  - ping（MEET、PING、PONG）
  *  - fail
@@ -519,7 +529,7 @@ typedef struct {
  */
 union clusterMsgData {
 
-    /* PING, MEET and PONG
+    /* PING, MEET and PONG 消息类型对应的数结构
      *
      * 因为 MEET、PING、PONG 三种消息都使用相同的消息正文，所以节点通过消息头的 type 属性来判断一条消息是 MEET 消息、PING 消息还是 PONG 消息。
      */
@@ -528,22 +538,22 @@ union clusterMsgData {
         clusterMsgDataGossip gossip[1];
     } ping;
 
-    /* FAIL */
+    /* FAIL 消息类型对应的数据结构*/
     struct {
         clusterMsgDataFail about;
     } fail;
 
-    /* PUBLISH */
+    /* PUBLISH 消息类型对应的数据结构*/
     struct {
         clusterMsgDataPublish msg;
     } publish;
 
-    /* UPDATE */
+    /* UPDATE 消息类型对应的数据结构*/
     struct {
         clusterMsgDataUpdate nodecfg;
     } update;
 
-    /* MODULE */
+    /* MODULE 消息类型对应的数据结构 */
     struct {
         clusterMsgModule msg;
     } module;
@@ -552,7 +562,8 @@ union clusterMsgData {
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
 
 /*
- * 用来表示集群消息的结构。主要是消息头信息(消息的基础信息)，消息内容在 clusterMsgData data 属性中
+ * 用来表示集群消息的数据结构。主要是消息头信息(消息的基础信息)，消息内容在 clusterMsgData data 属性中。
+ * 包含的信息包括发送消息节点的名称、IP、集群通信端口和负责的 slots ，以及消息类型、消息长度和具体的消息体。
  *
  * 说明：
  *  currentEpoch、sender、myslots 等属性记录了发送者自身的节点信息，接收者会根据这些信息，在自己的 clusterState.nodes 字典中找到发送者对应的 clusterNode 结构，
@@ -587,10 +598,10 @@ typedef struct {
     uint64_t offset;    /* Master replication offset if node is a master or
                            processed replication offset if node is a slave. */
 
-    // 消息发送者的名字(ID)
+    // 消息发送者的名称(ID)
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
 
-    // 消息发送者目前的槽指派信息
+    // 消息发送者负责的 slots
     unsigned char myslots[CLUSTER_SLOTS/8];
 
     // 如果消息发送者是一个从节点，那么这里记录的是消息发送者正在复制的主节点的名字
@@ -598,10 +609,11 @@ typedef struct {
     // （一个 40 字节长，值全为 0 的字节数组）
     char slaveof[CLUSTER_NAMELEN];
 
-
+    // 消息发送者的 IP
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
     char notused1[32];  /* 32 bytes reserved for future usage. */
     uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
+    // 消息发送者的通信端口
     uint16_t cport;      /* Sender TCP cluster bus port */
 
     // 消息发送者的标识值
@@ -613,7 +625,8 @@ typedef struct {
     // 消息标志
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
 
-    // 消息具体正文，即内容
+    // 消息具体正文，即消息体
+    // todo 消息类型很丰富
     union clusterMsgData data;
 
 } clusterMsg;
