@@ -135,7 +135,9 @@ void createReplicationBacklog(void) {
     // 4 把 repl_backlog_off，设置为 master_repl_offset 加 1 的值
     /* We don't have any data inside our buffer, but virtually the first
      * byte we have is the next byte that will be generated for the
-     * replication stream. 我们的缓冲区中没有任何数据，但实际上我们拥有的第一个字节就是将为复制流生成的下一个字节
+     * replication stream.
+     *
+     * 我们的缓冲区中没有任何数据，但实际上我们拥有的第一个字节就是将为复制流生成的下一个字节
      **/
     server.repl_backlog_off = server.master_repl_offset + 1;
 }
@@ -192,7 +194,7 @@ void freeReplicationBacklog(void) {
 void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
-    // 1 更新全局变量 master_repl_offset ，即在当前循环缓冲区总偏移量的基础上加上要写入的数据长度 len
+    // 1 更新全局变量 master_repl_offset ，即在当前值的基础上加上要写入的数据长度 len
     server.master_repl_offset += len;
 
 
@@ -207,13 +209,13 @@ void feedReplicationBacklog(void *ptr, size_t len) {
     while (len) {
 
         // 2.1 计算本次能写入的数据长度（循环缓冲区当前的剩余空间长度），循环缓冲区大小 - 当前写指针
+        // 如果剩余空间长度大于要写入数据的长度，则把 thislen 设置为实际要写入的数据长度。尽可能每一轮都会尽量多些数据
         size_t thislen = server.repl_backlog_size - server.repl_backlog_idx;
-        // 如果剩余空间长度大于要写入数据的长度，则把 thislen 设置为实际要写入的数据长度
         if (thislen > len) thislen = len;
 
         // 2.2 实际写入数据，即根据 thislen 的值，调用 memcpy 函数，将要写入的数据写到循环缓冲区中，
         // 写入的位置： repl_backlog_idx 指向的位置
-        // 写入的长度就是 thislen
+        // 写入的长度： thislen
         memcpy(server.repl_backlog + server.repl_backlog_idx, p, thislen);
 
         // 2.3 更新描述缓冲区状态的变量
@@ -230,13 +232,14 @@ void feedReplicationBacklog(void *ptr, size_t len) {
         // 2.3.3 更新要写入循环缓冲区的数据指针位置，因为写入数据是从数据指针指向的数据获取
         p += thislen;
 
-        // 在每轮循环的最后，都会加上刚刚写入的数据长度 thislen，用于表示循环缓冲区当前真实存储的数据长度
+        // 2.3.4 在每轮循环的最后，都会加上刚刚写入的数据长度 thislen，用于表示循环缓冲区当前真实存储的数据长度
         server.repl_backlog_histlen += thislen;
     }
 
 
     // 3 todo 检查 记录循环缓冲区真实数据长度的 repl_backlog_histlen 是否大于循环缓冲区大小。
-    // 如果大于，则将 repl_backlog_histlen 的值设置为循环缓冲区总长度。这也就是说，一旦循环缓冲区被写满后，repl_backlog_histlen 的值就等于循环缓冲区的总大小。
+    // 如果大于，则将 repl_backlog_histlen 的值设置为循环缓冲区总长度。
+    // 这也就是说，一旦循环缓冲区被写满后，repl_backlog_histlen 的值就会维持在循环缓冲区的总长度。
     if (server.repl_backlog_histlen > server.repl_backlog_size)
         server.repl_backlog_histlen = server.repl_backlog_size;
 
@@ -282,7 +285,7 @@ int canFeedReplicaReplBuffer(client *replica) {
  *
  * 将写命令传播到从节点，并填充复制积压缓冲区。
  *
- * 如果实例是从属节点，并且附加了子从属节点，我们使用replicationFeedSlavesFromMasterStream()
+ * 如果实例是从属节点，并且附加了子从属节点，我们使用 replicationFeedSlavesFromMasterStream()
  *
  */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
@@ -437,6 +440,9 @@ void showLatestBacklog(void) {
  * to our sub-slaves. */
 #include <ctype.h>
 
+/*
+ * 实例是从属节点，并且附加了子从属节点
+ */
 void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen) {
     listNode *ln;
     listIter li;
@@ -535,9 +541,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
      *
      * repl_backlog_off 表示仍然在循环缓冲区中的最早保存的数据（第一个没有还没有被覆盖的数据）的首字节在全局氛围内的偏移量。而从节点的全局读取位置和 repl_backlog_off 不一定一致，
      * 所以两者相减，就是从节点要跳过的数据长度。
-     * todo 注意为负数的情况。
-     *
-     */
+     * todo 注意为负数的情况。*/
     /* Compute the amount of bytes we need to discard. */
     skip = offset - server.repl_backlog_off;
     serverLog(LL_DEBUG, "[PSYNC] Skipping: %lld", skip);
@@ -649,6 +653,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
  * On success return C_OK, otherwise C_ERR is returned and we proceed
  * with the usual full resync. */
 /**
+ * 该函数用于处理主节点收到从节点发送的 PSYNC 命令
  *
  * @param c
  * @return
@@ -662,6 +667,7 @@ int masterTryPartialResynchronization(client *c) {
     /* Parse the replication offset asked by the slave. Go to full sync
      * on parse error: this should never happen but we try to handle
      * it in a robust way compared to aborting. */
+    // 1 解析从节点请求的复制偏移量。解析错误时转到完全同步：这永远不会发生，但与中止相比，我们尝试以一种稳健的方式处理它。
     if (getLongLongFromObjectOrReply(c, c->argv[2], &psync_offset, NULL) !=
         C_OK)
         goto need_full_resync;
@@ -696,6 +702,7 @@ int masterTryPartialResynchronization(client *c) {
     }
 
     /* We still have the data our slave is asking for? */
+    // 2 判断是否可以正常从主节点同步数据
     if (!server.repl_backlog ||
         psync_offset < server.repl_backlog_off ||
         psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen)) {
@@ -711,6 +718,8 @@ int masterTryPartialResynchronization(client *c) {
     }
 
     /* If we reached this point, we are able to perform a partial resync:
+     * 如果我们达到了这一点，我们就可以执行部分重新同步：
+     *
      * 1) Set client state to make it a slave.
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
@@ -731,6 +740,8 @@ int masterTryPartialResynchronization(client *c) {
         freeClientAsync(c);
         return C_OK;
     }
+
+    // 3 读取循环缓冲区中的数据，并发送给从节点
     psync_len = addReplyReplicationBacklog(c, psync_offset);
     serverLog(LL_NOTICE,
               "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
@@ -848,7 +859,10 @@ int startBgsaveForReplication(int mincapa) {
     return retval;
 }
 
-/* SYNC and PSYNC command implementation. */
+/* SYNC and PSYNC command implementation.
+ *
+ * SYNC and PSYNC 命令实现函数
+ */
 void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
@@ -944,13 +958,16 @@ void syncCommand(client *c) {
 
 
     /* Create the replication backlog if needed. */
-    // 创建循环缓冲区必要条件
+    // 创建循环缓冲区必要条件：当前还没有循环缓冲区 && 当前的从节点只有 1 个
+    // 也就是说，当一个主节点有多个从节点时，这些从节点其实会共享使用一个循环缓冲区，而这样设计的目的，主要是避免给每个从节点开辟一块缓冲区，造成内存资源浪费。
     if (listLength(server.slaves) == 1 && server.repl_backlog == NULL) {
         /* When we create the backlog from scratch, we always use a new
          * replication ID and clear the ID2, since there is no valid
          * past history. */
         changeReplicationId();
         clearReplicationId2();
+
+        // 创建循环缓冲区
         createReplicationBacklog();
         serverLog(LL_NOTICE, "Replication backlog created, my new "
                              "replication IDs are '%s' and '%s'",

@@ -1773,7 +1773,7 @@ struct redisServer {
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
 
-    /*
+    /**
      * 循环缓冲区关键属性说明：
      *
      * 循环缓冲区本身被设计为了一个字符类型的数组 repl_backlog ，然后 Redis 设计了以下的变量来描述循环缓冲区的状态，包括：
@@ -1799,14 +1799,17 @@ struct redisServer {
     long long repl_backlog_size;    /* Backlog circular buffer size */
     /**
      * 循环缓冲区中当前累积的数据的长度，即循环缓冲区当前真实的数据大小，该值不会超过循环缓冲区大小 repl_backlog_size
+     * todo 即如果缓冲区满了后，改值同 repl_backlog_size
      */
     long long repl_backlog_histlen; /* Backlog actual data length */
     /**
      * 循环缓冲区的写指针位置，即下一个字节将要写入的位置。
+     *
      * 例如，写入 len 的数据，那么：
-     * master_repl_offset+=len
-     * repl_backlog_idx+=len
-     * 但是，如果repl_backlog_idx等于repl_backlog_size时，repl_backlog_idx会被置为0，表示从环形缓冲区开始位置继续写入。
+     * 1、master_repl_offset+=len
+     * 2、repl_backlog_idx+=len
+     *
+     * 注意，如果repl_backlog_idx 等于 repl_backlog_size时，repl_backlog_idx会被置为0，表示从环形缓冲区开始位置继续写入。
      */
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,that is the next byte will'll write to.*/
     /**
@@ -1956,6 +1959,8 @@ struct redisServer {
                                    xor of NOTIFY_... flags. */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
+
+    // 集群节点下线超时时间
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
 

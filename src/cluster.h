@@ -270,7 +270,7 @@ typedef struct clusterNode {
                                     if we don't have the master node in our
                                     tables. */
 
-    // 当前节点（该结构）最后一次发送 PING 命令的时间戳
+    // 当前 Redis 实例最后一次向当前节点（该结构）发送 PING 命令的时间戳
     mstime_t ping_sent;      /* Unix time we sent latest ping */
 
     // 当前 Redis 实例最后一次接收当前节点(该结构) PONG 回复的时间戳
@@ -331,7 +331,7 @@ typedef struct clusterState {
     // 集群中处理槽的节点数量
     int size;             /* Num of master nodes with at least one slot */
 
-    // 集群节点表，包括 myself 节点
+    // 当前实例知道的集群节点表，包括 myself 节点
     // 字典的键为节点的名字，字典的值为 ClusterNode 结构
     dict *nodes;          /* Hash table of name -> clusterNode structures */
 

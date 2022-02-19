@@ -463,13 +463,17 @@ void addReply(client *c, robj *obj) {
 /* Add the SDS 's' string to the client output buffer, as a side effect
  * the SDS string is freed. */
 void addReplySds(client *c, sds s) {
+    // 判断当前客户端是否还有留存在输出缓冲区中的数据等待写回。
     if (prepareClientToWrite(c) != C_OK) {
         /* The caller expects the sds to be free'd. */
         sdsfree(s);
         return;
     }
+
+    // 将回复添加到 c 的输出缓冲区
     if (_addReplyToBuffer(c, s, sdslen(s)) != C_OK)
         _addReplyProtoToList(c, s, sdslen(s));
+
     sdsfree(s);
 }
 

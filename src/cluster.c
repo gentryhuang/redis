@@ -985,7 +985,7 @@ int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
  * 计算不包括本节点在内的，将 node 标记为 PFAIL 或 FAIL 的节点数量
  */
 int clusterNodeFailureReportsCount(clusterNode *node) {
-    // 移除 node 过期的下线报告
+    // 移除 node 过期的下线报告，保证有效的报告数
     clusterNodeCleanupFailureReports(node);
 
     // 统计下线报告的数量
@@ -1565,7 +1565,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     //记录这条消息中包含了多少个节点的信息
     uint16_t count = ntohs(hdr->count);
 
-    //  // 指向第一个节点的信息
+    // 指向消息体中第一个节点的信息
     clusterMsgDataGossip *g = (clusterMsgDataGossip *) hdr->data.ping.gossip;
 
     // 取出发送者（注意和当前节点的区别）
@@ -1574,8 +1574,9 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     // 遍历所有节点的信息
     while (count--) {
 
-        // 信息节点的标识
+        // 信息节点的状态
         uint16_t flags = ntohs(g->flags);
+
         clusterNode *node;
         sds ci;
 
@@ -1591,7 +1592,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         }
 
         /* Update our state accordingly to the gossip sections */
-        // 获取信息节点
+        // 根据节点名称，从当前实例节点维护的集群节点表中获取信息节点
         node = clusterLookupNode(g->nodename);
 
         // 信息节点已经存在于当前节点的 集群节点表 nodes 中
@@ -1600,6 +1601,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                Handle failure reports, only when the sender is a master. */
             // 如果 sender 是一个主节点，那么需要执行处理下线报告流程
             if (sender && nodeIsMaster(sender) && node != myself) {
+
                 // 信息节点处于 FAIL 或者 PFAIL 状态
                 if (flags & (CLUSTER_NODE_FAIL | CLUSTER_NODE_PFAIL)) {
 
@@ -1663,7 +1665,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->flags &= ~CLUSTER_NODE_NOADDR;
             }
 
-            // 当前节点不认识 node
+            // 当前节点不认识消息体中传过来的 node
         } else {
             /* If it's not in NOADDR state and we don't have it, we
              * add it to our trusted dict with exact nodeid and flag.
@@ -1693,7 +1695,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->pport = ntohs(g->pport);
                 node->cport = ntohs(g->cport);
 
-                // 将节点添加到集群当中
+                // 将节点添加到当前节点维护的集群当中
                 clusterAddNode(node);
             }
         }
@@ -2228,7 +2230,7 @@ int clusterProcessPacket(clusterLink *link) {
             // 更新本地记录的目标节点结构中 Pong 消息最新返回时间。 （重要- 在 clusterCron定时任务中会判断 pfail）
             link->node->pong_received = now;
 
-            // 清零最近一次等待 PING 命令的时间
+            // 清零最近一次 PING 命令的时间
             link->node->ping_sent = 0;
 
             /* The PFAIL condition can be reversed without external
