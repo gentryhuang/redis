@@ -192,7 +192,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
  * Input flags are updated upon parsing the arguments. Unit and expire are updated if there are any
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  */
-int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj **expire, int command_type) {
+int /**/parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj **expire, int command_type) {
 
     int j = command_type == COMMAND_GET ? 2 : 3;
     for (; j < c->argc; j++) {

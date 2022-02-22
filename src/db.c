@@ -272,7 +272,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * @param db
  * @param key
  * @param val
- * @param keepttl
+ * @param keepttl 是否保持过期时间 1-保持 0-不保持
  * @param signal
  */
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
@@ -298,24 +298,41 @@ void setKey(client *c, redisDb *db, robj *key, robj *val) {
 }
 
 /* Return a random key, in form of a Redis object.
- * If there are no keys, NULL is returned.
+ * 以 Redis 对象的形式返回一个随机键。
  *
- * The function makes sure to return keys not already expired. */
+ * If there are no keys, NULL is returned.
+ * 如果没有键，则返回 NULL。
+ *
+ *
+ * The function makes sure to return keys not already expired.
+ * 该函数确保返回尚未过期的 key
+ */
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
+
+    // 从节点选择次数控制
     int maxtries = 100;
+
+    // 数据字典和过期字典的 key 数量一样
     int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
+    // 执行循环
     while (1) {
         sds key;
         robj *keyobj;
 
+        // 随机选择一个 键值对
         de = dictGetFairRandomKey(db->dict);
+        // 没有键值对直接返回 NULL
         if (de == NULL) return NULL;
 
+        // 取出 key
         key = dictGetKey(de);
         keyobj = createStringObject(key, sdslen(key));
+
+        // 判断选择的 key 是否在过期字典中
         if (dictFind(db->expires, key)) {
+            // 非主节点 && 选择了 100 次，则直接返回选择的 key
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -327,6 +344,9 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
+
+            // 判断 key 是否过期，如果过期就会执行删除（主节点）操作
+            // 对于主节点，然后继续选择，直到选出或字典为空
             if (expireIfNeeded(db, keyobj)) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
@@ -1692,6 +1712,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /*
      * 当服务器运行在 replication 模式时，从节点并不主动删除 key，它只返回一个逻辑上正确的返回值。
      * 真正的删除操作要等待主节点发来删除命令时才执行，从而保证数据的同步。
+     *
+     * 是从节点
      */
     if (server.masterhost != NULL) return 1;
 

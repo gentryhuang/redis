@@ -553,7 +553,7 @@ void flushAppendOnlyFile(int force) {
 
     latencyStartMonitor(latency);
 
-    // write
+    // write 写入缓冲区
     nwritten = aofWrite(server.aof_fd, server.aof_buf, sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
