@@ -2338,10 +2338,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     checkClientPauseTimeoutAndReturnIfPaused();
 
     /* Replication cron function -- used to reconnect to master,
+     * 用于连接master
+     *
      * detect transfer failures, start background RDB transfers and so forth.
+     * 检测传输失败，启动后台 RDB 传输等等。
      *
      * If Redis is trying to failover then run the replication cron faster so
-     * progress on the handshake happens more quickly. */
+     * progress on the handshake happens more quickly.
+     * 如果 Redis 尝试进行故障转移，则更快地运行复制 cron，以便更快地进行握手。
+     */
+    // todo 主从复制周期处理函数
     if (server.failover_state != NO_FAILOVER) {
         run_with_period(100) replicationCron();
     } else {
@@ -2356,7 +2362,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
-    // 哨兵的时间事件处理函数 sentinelTimer
+    // todo 哨兵的时间事件处理函数 sentinelTimer
     if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */

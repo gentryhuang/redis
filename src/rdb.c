@@ -1471,7 +1471,7 @@ werr:
 }
 
 /**
- * Redis server 使用后台子进程方式，在本地磁盘创建 RDB 文件的入口函数
+ * Redis server 使用子进程方式，在本地磁盘创建 RDB 文件的入口函数
  * @param filename
  * @param rsi
  * @return
@@ -1495,6 +1495,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
         // 调用 rdbSave 函数创建 RDB 文件
         retval = rdbSave(filename,rsi);
+        // 发送给从节点
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
@@ -2861,6 +2862,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     }
 
     /* Create the child process. */
+    // 创建子进程
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
         int retval, dummy;
@@ -2878,6 +2880,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;
 
+        // 发送给从节点
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
