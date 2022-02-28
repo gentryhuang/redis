@@ -1496,6 +1496,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         // 调用 rdbSave 函数创建 RDB 文件
         retval = rdbSave(filename,rsi);
         // 发送给从节点
+        // todo 通过管道发送给从节点 ?
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
@@ -2881,6 +2882,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             retval = C_ERR;
 
         // 发送给从节点
+        // todo 通过管道发送给从节点 ？
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }

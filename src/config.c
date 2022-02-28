@@ -387,6 +387,9 @@ void initConfigValues() {
     }
 }
 
+/*
+ * 加载配置文件
+ */
 void loadServerConfigFromString(char *config) {
     const char *err = NULL;
     int linenum = 0, totlines, i;
@@ -507,6 +510,8 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
+
+            // 配置文件指定了主从关系
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
             slaveof_linenum = linenum;
@@ -515,12 +520,14 @@ void loadServerConfigFromString(char *config) {
                 server.masterhost = NULL;
                 continue;
             }
+            // 1 保存主节点地址和端口
             server.masterhost = sdsnew(argv[1]);
             char *ptr;
             server.masterport = strtol(argv[2], &ptr, 10);
             if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
                 err = "Invalid master port"; goto loaderr;
             }
+            // 2 更新复制状态
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */

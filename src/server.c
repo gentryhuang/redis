@@ -2881,6 +2881,7 @@ void initServerConfig(void) {
     server.master = NULL;
     server.cached_master = NULL;
     server.master_initial_offset = -1;
+    // 初始化复制状态为 未激活
     server.repl_state = REPL_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
@@ -3875,9 +3876,9 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  *
  * flags are an xor between:
  * flag 可以是以下标识
- * + PROPAGATE_NONE (no propagation of command at all) // 没有传播命令
- * + PROPAGATE_AOF (propagate into the AOF file if is enabled) // 如果启用，传播到 AOF 文件
- * + PROPAGATE_REPL (propagate into the replication link) // 传播到从节点
+ * + PROPAGATE_NONE (no propagation of command at all)             // 没有传播命令
+ * + PROPAGATE_AOF (propagate into the AOF file if is enabled)     // 如果启用，传播到 AOF 文件
+ * + PROPAGATE_REPL (propagate into the replication link)          // 传播到从节点
  *
  * This should not be used inside commands implementation since it will not
  * wrap the resulting commands in MULTI/EXEC. Use instead alsoPropagate(),
