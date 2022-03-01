@@ -980,9 +980,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Step 1: Parse options. */
     // 1 解析参数
     // 如 zscan key cursor [MATCH pattern] [COUNT count]
+    // 如 scan cursor [MATCH pattern] [COUNT count] [TYPE type]
     while (i < c->argc) {
         j = c->argc - i;
-        // 扫描元素数量
+        // 1.1 todo COUNT count 参数，指定了扫描数据量，仅仅是一种提示，它只是一个参考值，因为 Redis 扫描数据是以哈希桶为单位的。
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
             if (getLongFromObjectOrReply(c, c->argv[i + 1], &count, NULL)
                 != C_OK) {
@@ -996,7 +997,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
             i += 2;
 
-            // key 的匹配模式
+            // 1.2 MATCH pattern 参数，指定 key 的匹配模式
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i + 1]->ptr;
             patlen = sdslen(pat);
@@ -1007,13 +1008,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
             i += 2;
 
-            // 特定类型的 scan 仅用于 DB，也就是 scan 命令，不像 zscan 这种
+            // 1.3 特定类型参数 type ，只能用于 scan DB，也就是 scan 命令，不像 zscan 这种
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
             typename = c->argv[i + 1]->ptr;
             i += 2;
 
-            // error
+            // 1.4 error 参数项无法识别
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             goto cleanup;
@@ -1060,7 +1061,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     // 3 根据不同的类型，扫描集合
     // 3.1 哈希表编码情况
-    // todo 采用高位进位加法的方式遍历哈希表
+    // todo 采用高位加法进位的方式遍历哈希表
     if (ht) {
         void *privdata[2];
         /* We set the max number of iterations to ten times the specified
@@ -1077,11 +1078,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * it is possible to fetch more data in a type-dependent way. */
         privdata[0] = keys;
         privdata[1] = o;
+
+        // 扫描约 count 数量的数据
         do {
+            // 返回下次扫描的游标
             cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
-        } while (cursor &&
-                 maxiterations-- &&
-                 listLength(keys) < (unsigned long) count);
+        } while (cursor && // 游标不为 0
+                 maxiterations-- && // 递减迭代次数
+                 listLength(keys) < (unsigned long) count); // 扫描数据量达到指定的 count (一般都会大于 count ，因此扫描是以一个桶为单位）。一个桶不够，会扫描多个桶来凑count 大小
 
 
     // 3.2 压缩模式，一次性返回所有数据，忽略 count

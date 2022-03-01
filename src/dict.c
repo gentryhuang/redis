@@ -1199,6 +1199,7 @@ static unsigned long rev(unsigned long v) {
  * 3) The reverse cursor is somewhat hard to understand at first, but this
  *    comment is supposed to help.
  */
+// 以 0 作为游标开始一次新的迭代， 一直调用 SCAN 命令， 直到命令返回游标 0 ， 我们称这个过程为一次完整遍历（full iteration）。
 unsigned long dictScan(dict *d,
                        unsigned long v, // 游标
                        dictScanFunction *fn,
@@ -1208,13 +1209,13 @@ unsigned long dictScan(dict *d,
     const dictEntry *de, *next;
     unsigned long m0, m1;
 
-    // 跳过空字典
+    // 1 跳过空字典
     if (dictSize(d) == 0) return 0;
 
     /* This is needed in case the scan callback tries to do dictFind or alike. */
     dictPauseRehashing(d);
 
-    // 迭代只有一个哈希表的字典
+    // 2 没有处于迁移过程，迭代只有一个哈希表的字典
     if (!dictIsRehashing(d)) {
         // 指向哈希表
         t0 = &(d->ht[0]);
@@ -1227,44 +1228,61 @@ unsigned long dictScan(dict *d,
         // 指向游标 v 对应的哈希桶
         de = t0->table[v & m0];
 
-        // 遍历桶中的所有节点
+        // 如果游标 v 对应的哈希桶非空，则遍历游标 v 对应桶中的所有节点
         while (de) {
             next = de->next;
             fn(privdata, de);
             de = next;
         }
 
-        /** todo 高位进位加法操作游标 */
+        /** todo 高位进位加法操作游标
+         * 假设当前哈希表有 4 个桶，也就是默认桶数量。使用 scan 命令：scan 0 MATCH * COUNT 1 ，得到一个完整的桶迭代顺序如下：
+         *
+         * 0->2->1->3 ，转换成二进制为：00->10->01->11
+         *
+         * 我们发现每次这个序列变化是：将游标倒置 -> 加 1 -> 再倒置。要知道，普通二进制的加法，是从右往左相加、进位。
+         * 而这个序列是从左往右相加、进位的。
+         *
+         * 下面代码体现了这个过程。
+         */
         /* Set unmasked bits so incrementing the reversed cursor operates on the masked bits */
         v |= ~m0;
         /* Increment the reverse cursor */
-        // 增加反向游标
+        // 1）倒置游标 v
         v = rev(v);
+        // 2）加 1
         v++;
+        // 3）倒置加1后的游标 v
         v = rev(v);
 
-        // 迭代两个哈希表
+        // 3 正在迁移中，需要迭代两个哈希表
     } else {
 
-        // 指向两个哈希表
+        // 3.1 指向两个哈希表，即 0 号和 1 号哈希表
         t0 = &d->ht[0];
         t1 = &d->ht[1];
 
         /* Make sure t0 is the smaller and t1 is the bigger table */
-        // 确保 t0 比 t1 要小
+        // 3.1 确保 t0 比 t1 要小，即把字典中的两个哈希表较小的赋值给 t0
+        // todo 这个是必须的，因为可能是扩容，也可能缩容。遍历顺序是先小表，再到表。
+        // 扩容：小的是原哈希表
+        // 缩容：小的是新哈希表
         if (t0->size > t1->size) {
             t0 = &d->ht[1];
             t1 = &d->ht[0];
         }
 
-        // 记录掩码
+        // 3.3 记录两个哈希表的掩码
         m0 = t0->sizemask;
         m1 = t1->sizemask;
 
         /* Emit entries at cursor */
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
 
-        // 指向桶，并迭代桶中的所有节点
+        /* 注意，rehash 的单位是哈希桶，因此数据要么在 3.3 中取到，要在 3.4 中取到 */
+
+        // 3.3 迭代 t0 哈希表
+        // 根据游标 v 定位到桶，并迭代桶中的所有节点
         de = t0->table[v & m0];
         while (de) {
             next = de->next;
@@ -1274,10 +1292,11 @@ unsigned long dictScan(dict *d,
 
         /* Iterate over indices in larger table that are the expansion
          * of the index pointed to by the cursor in the smaller table */
+        // 3.4 迭代 t1 哈希表
         do {
             /* Emit entries at cursor */
             if (bucketfn) bucketfn(privdata, &t1->table[v & m1]);
-            // 指向桶，并迭代桶中的所有节点
+            // 根据游标 v 定位到桶，并迭代桶中的所有节点
             de = t1->table[v & m1];
             while (de) {
                 next = de->next;
@@ -1292,11 +1311,14 @@ unsigned long dictScan(dict *d,
             v = rev(v);
 
             /* Continue while bits covered by mask difference is non-zero */
+            // 当掩码差异覆盖的位不为零时继续
+            // ^ 按位异或
         } while (v & (m0 ^ m1));
     }
 
     dictResumeRehashing(d);
 
+    // todo 返回的游标是使用高位进位加法实现的
     return v;
 }
 
