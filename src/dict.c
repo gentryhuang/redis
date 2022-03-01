@@ -1100,22 +1100,34 @@ static unsigned long rev(unsigned long v) {
 
 /* dictScan() is used to iterate over the elements of a dictionary.
  *
+ * dictScan() 函数用于迭代给定字典中的元素。
+ *
  * Iterating works the following way:
+ * 迭代按以下方式执行：
  *
  * 1) Initially you call the function using a cursor (v) value of 0.
+ *     一开始，你使用 0 作为游标来调用函数
  * 2) The function performs one step of the iteration, and returns the
  *    new cursor value you must use in the next call.
+ *    函数执行一步迭代操作，并返回一个下次迭代时使用的新游标。
  * 3) When the returned cursor is 0, the iteration is complete.
+ *    当函数返回的游标为 0 时，迭代完成。
  *
  * The function guarantees all elements present in the
  * dictionary get returned between the start and end of the iteration.
  * However it is possible some elements get returned multiple times.
  *
+ * 函数保证，在迭代从开始到结束期间，一直存在于字典的元素肯定会被迭代到，
+ * 但一个元素可能会被返回多次。
+ *
  * For every element returned, the callback argument 'fn' is
  * called with 'privdata' as first argument and the dictionary entry
  * 'de' as second argument.
+ * 每当一个元素被返回时，回调函数 fn 就会被执行，fn 函数的第一个参数是 privdata ，而第二个参数则是字典节点 de 。
+ *
  *
  * HOW IT WORKS.
+ * 工作原理，采用高位进位加法
  *
  * The iteration algorithm was designed by Pieter Noordhuis.
  * The main idea is to increment a cursor starting from the higher order
@@ -1123,8 +1135,13 @@ static unsigned long rev(unsigned long v) {
  * of the cursor are reversed, then the cursor is incremented, and finally
  * the bits are reversed again.
  *
+ * 算法的主要思路是在二进制高位上对游标进行加法计算，也即是说，不是按正常的办法来对游标进行加法计算，
+ * 而是首先将游标的二进制位翻转（reverse）过来，然后对翻转后的值进行加法计算，最后再次对加法计算之后的结果进行翻转。
+ *
+ *
  * This strategy is needed because the hash table may be resized between
  * iteration calls.
+ * 这一策略是必要的，因为在一次完整的迭代过程中，哈希表的大小有可能在两次迭代之间发生改变。
  *
  * dict.c hash tables are always power of two in size, and they
  * use chaining, so the position of an element in a given table is given
@@ -1183,7 +1200,7 @@ static unsigned long rev(unsigned long v) {
  *    comment is supposed to help.
  */
 unsigned long dictScan(dict *d,
-                       unsigned long v,
+                       unsigned long v, // 游标
                        dictScanFunction *fn,
                        dictScanBucketFunction *bucketfn,
                        void *privdata) {
@@ -1191,48 +1208,63 @@ unsigned long dictScan(dict *d,
     const dictEntry *de, *next;
     unsigned long m0, m1;
 
+    // 跳过空字典
     if (dictSize(d) == 0) return 0;
 
     /* This is needed in case the scan callback tries to do dictFind or alike. */
     dictPauseRehashing(d);
 
+    // 迭代只有一个哈希表的字典
     if (!dictIsRehashing(d)) {
+        // 指向哈希表
         t0 = &(d->ht[0]);
+        // 记录哈希表的 mask
         m0 = t0->sizemask;
 
         /* Emit entries at cursor */
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
+
+        // 指向游标 v 对应的哈希桶
         de = t0->table[v & m0];
+
+        // 遍历桶中的所有节点
         while (de) {
             next = de->next;
             fn(privdata, de);
             de = next;
         }
 
-        /* Set unmasked bits so incrementing the reversed cursor
-         * operates on the masked bits */
+        /** todo 高位进位加法操作游标 */
+        /* Set unmasked bits so incrementing the reversed cursor operates on the masked bits */
         v |= ~m0;
-
         /* Increment the reverse cursor */
+        // 增加反向游标
         v = rev(v);
         v++;
         v = rev(v);
 
+        // 迭代两个哈希表
     } else {
+
+        // 指向两个哈希表
         t0 = &d->ht[0];
         t1 = &d->ht[1];
 
         /* Make sure t0 is the smaller and t1 is the bigger table */
+        // 确保 t0 比 t1 要小
         if (t0->size > t1->size) {
             t0 = &d->ht[1];
             t1 = &d->ht[0];
         }
 
+        // 记录掩码
         m0 = t0->sizemask;
         m1 = t1->sizemask;
 
         /* Emit entries at cursor */
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
+
+        // 指向桶，并迭代桶中的所有节点
         de = t0->table[v & m0];
         while (de) {
             next = de->next;
@@ -1245,6 +1277,7 @@ unsigned long dictScan(dict *d,
         do {
             /* Emit entries at cursor */
             if (bucketfn) bucketfn(privdata, &t1->table[v & m1]);
+            // 指向桶，并迭代桶中的所有节点
             de = t1->table[v & m1];
             while (de) {
                 next = de->next;
