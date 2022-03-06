@@ -97,7 +97,8 @@ typedef struct clusterLink {
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
 
-    // 与这个连接相关联的节点，如果没有的话就为 NULL
+    // 与这个连接结构相关联的节点，如果没有的话就为 NULL
+    // todo 对于当前服务节点来说，是和当前服务节点通信的节点
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 
 } clusterLink;
@@ -179,7 +180,7 @@ typedef struct clusterLink {
 // PING 消息
 #define CLUSTERMSG_TYPE_PING 0          /* Ping 这是一个节点用来向其他节点发送信息的消息类型*/
 
-// PONG (回复 PING)
+// PONG (回复 PING 或 MEET)
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) 对 PING 消息的回复*/
 
 // MEET 消息 （请求将节点添加到集群中）
@@ -245,6 +246,7 @@ typedef struct clusterNode {
     uint64_t configEpoch; /* Last configEpoch observed for this node */
 
     // 记录当前节点负责哪些 slots
+    // 是一个二进制位数组，这个数组的长度为 16384/8 = 2048 ，也就是 2048 个字节，共包含 16384 个二进制位
     // slots[i] = 1 表示节点负责处理槽 i
     // slots[i] = 0 表示节点不负责处理槽 i
     // 说明：因为取出和设置 slots 数组中的任意一个二进制位的值的复杂度仅为 O(1)，因此：
@@ -276,7 +278,8 @@ typedef struct clusterNode {
     // 当前 Redis 实例最后一次接收当前节点(该结构) PONG 回复的时间戳
     mstime_t pong_received;  /* Unix time we received the pong */
 
-    // 当前 Redis 实例接收当前节点(该结构)数据的时间戳
+    // 当前 Redis 实例接收当前节点(该结构)数据（ping、pong 等消息）的时间戳
+    // 使用该属性记录当前节点（该结构）对当前 Redis 实例的响应
     mstime_t data_received;  /* Unix time we received any data */
 
     // 最后一次被设置为 FAIL 状态的时间戳
@@ -285,7 +288,7 @@ typedef struct clusterNode {
     // 最后一次给某个从节点投票的时间
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
 
-    // 最后一次从当前节点接收到复制偏移量的时间
+    // 当前 Redis 实例最后一次从当前节点（该结构）接收到复制偏移量的时间
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
 
@@ -304,7 +307,8 @@ typedef struct clusterNode {
     // 保存连接当前节点所需的有关信息，如 套接字描述符、输入/输出缓冲区
     clusterLink *link;          /* TCP/IP link with this node 和该节点的 tcp 连接*/
 
-    // 一个链表，记录了所有其他节点对该节点的下线报告
+    // 一个链表，记录了所有其他节点对该节点（该结构对应的）的下线报告
+    // 下线报告的结构：clusterNodeFailReport
     list *fail_reports;         /* List of nodes signaling this as failing */
 
 } clusterNode;
@@ -368,14 +372,17 @@ typedef struct clusterState {
     mstime_t failover_auth_time; /* Time of previous or next election. */
 
     // 节点获得的投票数量
-    int failover_auth_count;    /* Number of votes received so far. */
+    int failover_auth_count;    /* Number of votes received so far. 当前节点是从节点，获取请求成为主节点的赞成票*/
 
     // 如果值为 1 ，表示本节点已经向其他节点发送了投票请求
     int failover_auth_sent;     /* True if we already asked for votes. */
 
 
     int failover_auth_rank;     /* This slave rank for current auth request. */
-    uint64_t failover_auth_epoch; /* Epoch of the current election. */
+
+    // todo 当前选举的纪元
+    uint64_t failover_auth_epoch; /* Epoch of the current election. 当前选举的纪元 */
+
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
 
@@ -411,8 +418,8 @@ typedef struct clusterState {
     long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
     long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
 
-    long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
-                                       excluding nodes without address. */
+    // PFAIL状态的节点数，不包括没有地址的节点。
+    long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,excluding nodes without address. */
 
 
 } clusterState;
@@ -438,10 +445,10 @@ typedef struct {
     // 被选中节点的名称
     char nodename[CLUSTER_NAMELEN]; // 40字节
 
-    // 被选中节点最后一次发送 PING 消息的时间戳
+    // 当前服务节点最后一次给选中节点发送 PING 命令的时间
     uint32_t ping_sent; // 4 字节
 
-    // 被选中节点最后一次接收到 PONG 消息的时间戳
+    // 当前服务节点最后一次收到选中节点 PONG 回复的时间
     uint32_t pong_received; // 4 字节
 
     // 被选中节点的 IP 地址
@@ -464,7 +471,8 @@ typedef struct {
 /*
  * FAIL 消息正文
  *
- * 因为集群中的所有节点都有一个独一无二的名字，所以 FAIL 消息里只需要保存下线节点的名字。
+ * 1 FIAL 消息不是 Gossip 协议的实现，因为 Gossip 协议实现的消息会存在一定的延迟才会整个集群知道，而 FAIL 消息不能有延迟
+ * 2 因为集群中的所有节点都有一个独一无二的名字，所以 FAIL 消息里只需要保存下线节点的名字。
  * 接收到消息的节点就可以根据这个名字来判断是哪个节点下线了。
  */
 typedef struct {
@@ -475,6 +483,8 @@ typedef struct {
 
 /*
  * PUBLISH 消息正文
+ *
+ * 1 PUBLISH 消息不是 Gossip 协议的实现
  */
 typedef struct {
 
@@ -525,7 +535,7 @@ typedef struct {
  *  - module
  *
  * Redis 集群中的各个节点通过 Gossip 协议来交换各自关于不同节点的状态信息，其中 Gossip 协议由 MEET、PING、PONG 三种消息实现，
- * 这三种消息的正文都由两个 clusterMsgDataGossip 结构组成
+ * 这三种消息的正文都由两个 clusterMsgDataGossip 结构组成。其他的消息不是 Gossip 协议的实现
  */
 union clusterMsgData {
 
@@ -562,8 +572,9 @@ union clusterMsgData {
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
 
 /*
- * 用来表示集群消息的数据结构。主要是消息头信息(消息的基础信息)，消息内容在 clusterMsgData data 属性中。
- * 包含的信息包括发送消息节点的名称、IP、集群通信端口和负责的 slots ，以及消息类型、消息长度和具体的消息体。
+ * 用来表示集群消息的数据结构。
+ * - 是消息头信息(消息的基础信息)，消息内容在 clusterMsgData data 属性中。
+ * - 包含的信息包括发送消息节点的名称、IP、集群通信端口和负责的 slots ，以及消息类型、消息长度和具体的消息体。
  *
  * 说明：
  *  currentEpoch、sender、myslots 等属性记录了发送者自身的节点信息，接收者会根据这些信息，在自己的 clusterState.nodes 字典中找到发送者对应的 clusterNode 结构，

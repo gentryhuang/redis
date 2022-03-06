@@ -2211,8 +2211,18 @@ void slotToKeyFlush(int async) {
 }
 
 /* Populate the specified array of objects with keys in the specified slot.
+ *
+ * 使用指定槽 hashslot 中的键，填充指定的对象数组 keys 。并返回填充键的数量。
+ *
+ *
  * New objects are returned to represent keys, it's up to the caller to
- * decrement the reference count to release the keys names. */
+ * decrement the reference count to release the keys names.
+ *
+ * @param hashslot 槽
+ * @param keys 收集 key 的对象数组
+ * @param count 预期收集 key 的数量
+ *
+ */
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
     raxIterator iter;
     int j = 0;
@@ -2222,6 +2232,8 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     indexed[1] = hashslot & 0xff;
     raxStart(&iter, server.cluster->slots_to_keys);
     raxSeek(&iter, ">=", indexed, 2);
+
+    // 遍历 rax 类型的字典树 ，根据指定的槽 hashslot 获取 count 个 key
     while (count-- && raxNext(&iter)) {
         if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
         keys[j++] = createStringObject((char *) iter.key + 2, iter.key_len - 2);

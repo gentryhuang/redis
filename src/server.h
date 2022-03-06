@@ -1988,7 +1988,9 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    /* Cluster */
+
+    /**------- Cluster 相关-----------*/
+    // 是否开启集群
     int cluster_enabled;      /* Is cluster enabled? */
 
     // 集群节点下线超时时间
@@ -1997,6 +1999,7 @@ struct redisServer {
 
     // 集群状态
     struct clusterState *cluster;  /* State of the cluster */
+
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_allow_replica_migration; /* Automatic replica migrations to orphaned masters and from empty masters */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */

@@ -3026,12 +3026,22 @@ int cancelReplicationHandshake(int reconnect) {
     return 1;
 }
 
-/* Set replication to the specified master address and port. */
+/**
+ * Set replication to the specified master address and port.
+ *
+ * 将当前服务节点设置为指定地址的从服务器
+ *
+ * @param ip 目标主节点的 IP
+ * @param port 目标主节点的 PORT
+ */
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
+    // 清除当前服务节点原有的主服务器地址（如果有的话）
     sdsfree(server.masterhost);
     server.masterhost = NULL;
+
+    // 清理用来和主库连接的客户端（如果当前是从节点的话）
     if (server.master) {
         freeClient(server.master);
     }
@@ -3040,20 +3050,30 @@ void replicationSetMaster(char *ip, int port) {
     /* Setting masterhost only after the call to freeClient since it calls
      * replicationHandleMasterDisconnection which can trigger a re-connect
      * directly from within that call. */
+    // 为当前服务节点设置主节点的 IP 和 PORT
     server.masterhost = sdsnew(ip);
     server.masterport = port;
 
     /* Update oom_score_adj */
     setOOMScoreAdj(-1);
 
-    /* Force our slaves to resync with us as well. They may hopefully be able
-     * to partially resync with us, but we can notify the replid change. */
+    /* Force our slaves to resync with us as well.
+     * 强制所有从服务器执行重同步
+     *
+     * They may hopefully be able to partially resync with us, but we can notify the replid change. */
+    // 断开所有从服务器的连接（如果当前是主节点并且有从节点）
     disconnectSlaves();
+
+    // 重置复制状态机（如果之前有的情况下）
     cancelReplicationHandshake(0);
+
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
+    // 如果是主库
     if (was_master) {
+        // 清空可能有的 master 缓存，因为已经不会执行 PSYNC 了
         replicationDiscardCachedMaster();
+        // 释放 backlog 等，同理 PSYNC 目前已经不会执行了
         replicationCacheMasterUsingMyself();
     }
 
@@ -3068,12 +3088,12 @@ void replicationSetMaster(char *ip, int port) {
                               REDISMODULE_SUBEVENT_MASTER_LINK_DOWN,
                               NULL);
 
-    // 设置复制状态为 REPL_STATE_CONNECT
+    // todo 设置复制状态为 REPL_STATE_CONNECT，进入复制状态
     server.repl_state = REPL_STATE_CONNECT;
     serverLog(LL_NOTICE, "Connecting to MASTER %s:%d",
               server.masterhost, server.masterport);
 
-    // 尝试连接主节点，连接成功后状态会变成 REPL_STATE_CONNECTING
+    // todo 尝试连接主节点，连接成功后状态会变成 REPL_STATE_CONNECTING
     connectWithMaster();
 }
 

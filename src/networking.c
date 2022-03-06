@@ -434,10 +434,11 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 // Redis 在执行了客户端命令，要给客户端返回结果时，会调用 addReply 函数将待返回结果写入客户端输出缓冲区。
 void addReply(client *c, robj *obj) {
 
-    // 调用 prepareClientToWrite 判断是否推迟执行客户端写操作，即将待写回客户端加入到全局变量 server 的 clients_pending_write 列表中。
+    // 调用 prepareClientToWrite 判断是否推迟执行客户端写操作，即将待写回客户端加入到全局变量 server 的 clients_pending_write 列表中
+    // 后续等 IO 线程执行写入缓冲区（也可能分配到主线程执行）
     if (prepareClientToWrite(c) != C_OK) return;
 
-    // 如果不需要推迟执行，那么就继续往下
+    // 如果不需要推迟执行，那么就由主线程处理，继续往下执行
 
     if (sdsEncodedObject(obj)) {
         // 将要返回的结果添加到客户端的输出缓冲区中
