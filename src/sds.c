@@ -160,6 +160,7 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
 
     // 根据是否尝试 malloc，新建SDS结构，并分配内存空间。内存分配策略取决于分配器，如 malloc 按照 2^N 大小分配
     // todo sh 指向当前新建的 SDS 结构，即 sh指向SDS结构体起始位置
+    // 分配的内存部分：SDS 结构体中元数据长度 + 字符串长度 + \0
     sh = trymalloc ?
          s_trymalloc_usable(hdrlen + initlen + 1, &usable) : // 内存不足不报错
          s_malloc_usable(hdrlen + initlen + 1, &usable);

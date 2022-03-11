@@ -1397,6 +1397,8 @@ int clusterBlacklistExists(char *nodeid) {
  *
  * 此函数用于判断是否需要将 node 标记为 FAIL 。
  *
+ * todo 从节点不会参与投票，主节点会参与投票
+ *
  * 1) We received enough failure reports from other master nodes via gossip.
  *    Enough means that the majority of the masters signaled the node is
  *    down recently.
@@ -1428,7 +1430,8 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     failures = clusterNodeFailureReportsCount(node);
 
     /* Also count myself as a voter if I'm a master. */
-    // 如果当前节点是主节点，那么它有资格对 node 标记主观下线
+    // 如果当前节点是主节点，那么它有资格对 node 标记主观下线，否则没有资格
+    // todo 为什么不判断 node 的主观下线状态，而是直接认为主观下线了？？？
     if (nodeIsMaster(myself)) failures++;
 
     // 报告下线节点的数量不足节点总数的一半，不能将节点判断为 FAIL ，返回
@@ -1686,6 +1689,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                     }
 
                     // 尝试将 node 标记为 FAIL
+                    // todo 标记 PFAIL 在集群周期函数中
                     markNodeAsFailingIfNeeded(node);
 
                     // 节点处于正常状态
@@ -2150,7 +2154,7 @@ int clusterProcessPacket(clusterLink *link) {
      * use this in order to avoid detecting a timeout from a node that
      * is just sending a lot of data in the cluster bus, for instance
      * because of Pub/Sub. */
-    // 更新响应时间戳-（重要）
+    // todo 更新响应时间戳-（重要）
     if (sender) sender->data_received = now;
 
     // 节点存在，并且不是 HANDSHAKE 节点，那么更新节点的配置纪元信息
@@ -2255,6 +2259,7 @@ int clusterProcessPacket(clusterLink *link) {
          * the gossip section here since we have to trust the sender because
          * of the message type. */
         // 分析并取出 MEET 消息中的 gossip 节点信息（消息体）
+        // todo 针对 MEET 消息，如果发送该 MEET 消息的节点是主节点，则需要对 gossip 信息中的节点进行判断是否 FAIL
         if (!sender && type == CLUSTERMSG_TYPE_MEET)
             // 处理 MEET 类型的 gossip 消息
             // 将消息体中不认识的节点加入到当前服务节点集群中 & 如果消息发送者是一个主节点，还要判断消息体中节点是否下线
@@ -3197,6 +3202,7 @@ void clusterSendPing(clusterLink *link, int type) {
     /* Populate the header. */
     // 如果发送的消息是 PING ，那么在发送的目标节点的结构中记录Ping消息的发送时间
     if (link->node && type == CLUSTERMSG_TYPE_PING)
+        // todo 更新 ping 发送时间
         link->node->ping_sent = mstime();
 
     // 将当前服务节点的信息（比如名字、地址、端口号、负责处理的槽）记录到消息里面，即构建消息头
@@ -4332,6 +4338,7 @@ void clusterHandleManualFailover(void) {
  * 1、集群常规操作函数，默认每秒执行 10 次 （每间隔 100 毫秒执行一次）
  * 2、该函数的一个主要逻辑就是每经过 10 次执行，就会随机选 5 个节点，然后在这五个节点中，选出最早向当前节点发送 Pong 消息的那个节点，并向它发送 Ping 消息。
  *    而该函数本身是每 1s 执行 10 次，所有这也相当于是集群节点每 1s 向一个随机节点发送 Gossip 协议的 Ping 消息。
+ * 3.
  *
  */
 void clusterCron(void) {
@@ -4389,6 +4396,7 @@ void clusterCron(void) {
      * 一般来说 handshake timeout 的值总是等于 NODE_TIMEOUT，不过如果 NODE_TIMEOUT 太少的话，程序会将值设为 1 秒钟
      * */
     handshake_timeout = server.cluster_node_timeout;
+    // 握手超时时间
     if (handshake_timeout < 1000) handshake_timeout = 1000;
 
     /* Update myself flags. */
@@ -4502,7 +4510,7 @@ void clusterCron(void) {
         }
     }
 
-    // 遍历所有节点，检查是否需要将某个节点标记为下线
+    // 3 遍历所有节点，检查是否需要将某个节点标记为 PFAIL & 对长时间没有 PING 的节点立即 PING 操作
     /* Iterate nodes to check if we need to flag something as failing.
      * This loop is also responsible to:
      * 1) Check if there are orphaned masters (masters without non failing
@@ -4545,8 +4553,6 @@ void clusterCron(void) {
          *
          * 如果超过一半的集群超时时间内没有收到任何数据，重新连接链接，因为即使节点还活着，但是可能存在连接问题
          */
-
-
         // 截止到当前，最后一次发送 ping 命令过了多长时间
         mstime_t ping_delay = now - node->ping_sent;
         // 截止到当前，最后一次收到数据过了多长时间
@@ -4569,7 +4575,7 @@ void clusterCron(void) {
          * received PONG is older than half the cluster timeout, send
          * a new ping now, to ensure all the nodes are pinged without
          * a too big delay. */
-        // 如果 node 目前没有在 PING 节点，并且 PONG 时间超过了集群超时时间的一半，那么向节点发送一个 PING ，确保节点的信息不会太旧 （因为一部分节点可能一直没有被随机中）
+        // 3.1 todo 如果没有给 node  PING，并且 PONG 时间超过了集群超时时间的一半，那么向节点发送一个 PING ，确保节点的信息不会太旧 （因为一部分节点可能一直没有被随机中）
         if (node->link &&
             node->ping_sent == 0 &&
             (now - node->pong_received) > server.cluster_node_timeout / 2) {
@@ -4589,7 +4595,8 @@ void clusterCron(void) {
         }
 
         /* Check only if we have an active ping for this instance. */
-        // 以下代码只在节点发送了 PING 命令的情况下执行
+        // todo 以下代码只在节点发送了 PING 命令的情况下执行（就是检测发送 PING 后，能不能返回响应）
+        // 收到 node 节点的 PONG ，则会设置 ping_sent = 0
         if (node->ping_sent == 0) continue;
 
         /* Check if this node looks unreachable.
@@ -4604,7 +4611,7 @@ void clusterCron(void) {
         mstime_t node_delay = (ping_delay < data_delay) ? ping_delay :
                               data_delay;
 
-        // 与节点 node 最后通信时间超过 server.cluster_node_timeout（集群超时时间），将 node 标记为 PFAIL
+        // 3.2 todo 与节点 node 最后通信时间超过 server.cluster_node_timeout（集群超时时间），将 node 标记为 PFAIL
         if (node_delay > server.cluster_node_timeout) {
             /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
@@ -6205,7 +6212,10 @@ void clusterCommand(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
- * io stream pointed by 'rio'. This function can't fail. */
+ * io stream pointed by 'rio'. This function can't fail.
+ *
+ * 创建对象 o 的一个 DUMP 格式表示，并将它添加到 rio 指针指向的 io 流当中。
+ */
 void createDumpPayload(rio *payload, robj *o, robj *key) {
     unsigned char buf[2];
     uint64_t crc;
@@ -6224,31 +6234,54 @@ void createDumpPayload(rio *payload, robj *o, robj *key) {
      */
 
     /* RDB version */
+    // 写入 RDB 版本
     buf[0] = RDB_VERSION & 0xff;
     buf[1] = (RDB_VERSION >> 8) & 0xff;
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr, buf, 2);
 
     /* CRC64 */
+    // 写入 CRC 校验和
     crc = crc64(0, (unsigned char *) payload->io.buffer.ptr,
                 sdslen(payload->io.buffer.ptr));
     memrev64ifbe(&crc);
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr, &crc, 8);
+
+    // 整个数据的结构:
+    //
+    // | <--- 序列化数据 -->|
+    // +-------------+------+---------------------+---------------+
+    // | 1 byte type | obj  | 2 bytes RDB version | 8 bytes CRC64 |
+    // +-------------+------+---------------------+---------------+
+
 }
 
 /* Verify that the RDB version of the dump payload matches the one of this Redis
  * instance and that the checksum is ok.
+ *
+ * 检查输入的 DUMP 数据中， RDB 版本是否和当前 Redis 实例所使用的 RDB 版本相同，
+ * 并检查校验和是否正确。
+ *
  * If the DUMP payload looks valid C_OK is returned, otherwise C_ERR
- * is returned. */
+ * is returned.
+ *
+ * 检查正常返回 REDIS_OK ，否则返回 REDIS_ERR 。
+ */
 int verifyDumpPayload(unsigned char *p, size_t len) {
     unsigned char *footer;
     uint16_t rdbver;
     uint64_t crc;
 
     /* At least 2 bytes of RDB version and 8 of CRC64 should be present. */
+    // 因为序列化数据至少包含 2 个字节的 RDB 版本
+    // 以及 8 个字节的 CRC64 校验和
+    // 所以序列化数据不可能少于 10 个字节
     if (len < 10) return C_ERR;
+
+    // 指向数据的最后 10 个字节
     footer = p + (len - 10);
 
     /* Verify RDB version */
+    // 检查序列化数据的版本号，看是否和当前实例使用的版本号一致
     rdbver = (footer[1] << 8) | footer[0];
     if (rdbver > RDB_VERSION) return C_ERR;
 
@@ -6256,6 +6289,7 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
         return C_OK;
 
     /* Verify CRC64 */
+    // 检查数据的 CRC64 校验和是否正确
     crc = crc64(0, p, len - 8);
     memrev64ifbe(&crc);
     return (memcmp(&crc, footer + 2, 8) == 0) ? C_OK : C_ERR;
@@ -6269,15 +6303,18 @@ void dumpCommand(client *c) {
     rio payload;
 
     /* Check if the key is here. */
+    // 取出给定键的值
     if ((o = lookupKeyRead(c->db, c->argv[1])) == NULL) {
         addReplyNull(c);
         return;
     }
 
     /* Create the DUMP encoded representation. */
+    // 创建给定值的一个 DUMP 编码表示
     createDumpPayload(&payload, o, c->argv[1]);
 
     /* Transfer to the client */
+    // 将编码后的键值对数据返回给客户端
     addReplyBulkSds(c, payload.io.buffer.ptr);
     return;
 }
@@ -6285,6 +6322,8 @@ void dumpCommand(client *c) {
 /* RESTORE key ttl serialized-value [REPLACE]
  *
  * RESTORE-ASKING 命令 或 RESTORE 命令的处理函数
+ *
+ * 根据给定的 DUMP 数据，还原出一个键值对数据，并将它保存到数据库里面
  */
 void restoreCommand(client *c) {
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
@@ -6337,6 +6376,7 @@ void restoreCommand(client *c) {
     }
 
     /* 3 Check if the TTL value makes sense 检查 TTL 值是否有意义 */
+    // 取出（可能有的） TTL 值
     if (getLongLongFromObjectOrReply(c, c->argv[2], &ttl, NULL) != C_OK) {
         return;
     } else if (ttl < 0) {
@@ -6400,7 +6440,7 @@ void restoreCommand(client *c) {
     server.dirty++;
 }
 
-/* MIGRATE socket cache implementation.
+/* MIGRATE socket cache implementation. todo 带看看
  *
  * We take a map between host:ip and a TCP socket that we used to connect
  * to this instance in recent time.
