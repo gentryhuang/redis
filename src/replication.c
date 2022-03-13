@@ -3851,7 +3851,7 @@ void replicationCron(void) {
      *
      * 这样从服务器就可以实现显式的 master 超时判断机制，即使 TCP 连接未断开也是如此。
      */
-    // 6 如果是主服务器，那么周期性地向所有从服务器发送 PING
+    // 6 如果是主服务器，那么周期性地向所有从服务器发送 PING，默认是 10s
     listIter li;
     listNode *ln;
     robj *ping_argv[1];

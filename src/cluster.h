@@ -148,11 +148,11 @@ typedef struct clusterLink {
 #define nodeFailed(n) ((n)->flags & CLUSTER_NODE_FAIL)
 #define nodeCantFailover(n) ((n)->flags & CLUSTER_NODE_NOFAILOVER)
 
-/* Reasons why a slave is not able to failover. */
+/* Reasons why a slave is not able to failover. 从节点无法进行故障转移的原因。 */
 #define CLUSTER_CANT_FAILOVER_NONE 0
 #define CLUSTER_CANT_FAILOVER_DATA_AGE 1
-#define CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
-#define CLUSTER_CANT_FAILOVER_EXPIRED 3
+#define CLUSTER_CANT_FAILOVER_WAITING_DELAY 2   /*执行故障转移的时间未到*/
+#define CLUSTER_CANT_FAILOVER_EXPIRED 3          /*选举时间超过预定的选举超时时，本次故障转移作废*/
 #define CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
 #define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
@@ -380,9 +380,10 @@ typedef struct clusterState {
 
     int failover_auth_rank;     /* This slave rank for current auth request. */
 
-    // todo 当前选举的纪元
+    // todo 当前选举的纪元（集群故障转移的纪元，当前节点（从节点）发起投票）
     uint64_t failover_auth_epoch; /* Epoch of the current election. 当前选举的纪元 */
 
+    // 为什么从节点当前无法进行故障转移
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
 
@@ -393,16 +394,15 @@ typedef struct clusterState {
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
 
-    /* Manual failover state of master. */
+    /* Manual failover state of master.*/
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
 
-    /* Manual failover state of slave. */
-    long long mf_master_offset; /* Master offset the slave needs to start MF
-                                   or -1 if still not received. */
+    /* Manual failover state of slave.*/
+    long long mf_master_offset; /* Master offset the slave needs to start MF or -1 if still not received. */
 
 
     // 指示手动故障转移是否可以开始的标志值
-    // 值为非 0 时表示各个主服务器可以开始投票
+    // 值为非 0 时表示故障转移已触发
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
 

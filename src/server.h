@@ -1782,6 +1782,8 @@ struct redisServer {
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
+
+    // 主服务器每 N 秒 ping 一次从服务器，默认 N 为 10
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
 
     /**
@@ -1995,6 +1997,7 @@ struct redisServer {
 
     // 集群节点下线超时时间
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
+
     char *cluster_configfile; /* Cluster auto-generated config file name. */
 
     // 集群状态
@@ -2002,7 +2005,11 @@ struct redisServer {
 
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_allow_replica_migration; /* Automatic replica migrations to orphaned masters and from empty masters */
-    int cluster_slave_validity_factor; /* Slave max data age for failover. */
+
+    int cluster_slave_validity_factor; /* Slave max data age for failover. 故障转移的从节点最大数据年龄。 */
+
+    // 如果为真(默认为 true)，那么就算有一个槽未指派，也将集群关闭。否则，集群中只有下线的主节点会造成影响。
+    // todo 这个为了解决集群故障转移期间整个集群不可用的问题
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
