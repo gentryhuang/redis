@@ -6155,6 +6155,7 @@ void clusterCommand(client *c) {
         }
 
 
+
         // 执行手动故障转移
     } else if (!strcasecmp(c->argv[1]->ptr, "failover") &&
                (c->argc == 2 || c->argc == 3)) {
