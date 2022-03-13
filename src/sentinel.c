@@ -3847,25 +3847,44 @@ void sentinelCommand(client *c) {
             addReplyBulkCString(c, announceSentinelAddr(addr));
             addReplyBulkLongLong(c, addr->port);
         }
+
+        // 客户端在任意 Sentinel 节点执行 SENTINEL FAILOVER <master-name>
+        // todo 对主节点进行强制故障转移（不和其他 Sentinel 节点协商，即不用管自己是不是主哨兵）
     } else if (!strcasecmp(c->argv[1]->ptr, "failover")) {
         /* SENTINEL FAILOVER <master-name> */
         sentinelRedisInstance *ri;
 
+        // 1 参数校验
         if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c, c->argv[2])) == NULL)
             return;
+
+        // 2 如果主节点正在被前置故障转移，那么无需处理
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
             addReplySds(c, sdsnew("-INPROG Failover already in progress\r\n"));
             return;
         }
+
+        // 3 从主节点中选出一个从节点来作为目标主节点
         if (sentinelSelectSlave(ri) == NULL) {
             addReplySds(c, sdsnew("-NOGOODSLAVE No suitable replica to promote\r\n"));
             return;
         }
         serverLog(LL_WARNING, "Executing user requested FAILOVER of '%s'",
                   ri->name);
+
+        // 4 开始故障转移（设置相关状态）
         sentinelStartFailover(ri);
+
+        // 5 标记主节点被强制故障转移
         ri->flags |= SRI_FORCE_FAILOVER;
+
+        /**
+         * 说明，这里标记好开始故障转移之后，那么真正的执行是：
+         *   -sentinelHandleRedisInstance
+         *     -sentinelFailoverStateMachine
+         */
+
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "pending-scripts")) {
         /* SENTINEL PENDING-SCRIPTS */
@@ -4404,7 +4423,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         /* Is subjectively down */
         // 当上面两个条件有一个满足时，哨兵就判定节点为主观下线。然后，哨兵就会调用 sentinelEvent 函数发布 "+sdown" 事件信息
         // todo 使用发布/订阅机制
-        if ((ri->flags & SRI_S_DOWN) == 0) {
+        if ((ri->flags & SRI_S_DOWN) == 0) { // 如果没有被标记，则标记
             sentinelEvent(LL_WARNING, "+sdown", ri, "%@");
             ri->s_down_since_time = mstime();
             // 标记主观下线
@@ -4938,7 +4957,7 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
     if (!(master->flags & SRI_O_DOWN)) return 0;
 
     /* Failover already in progress? */
-    // 当前正在执行故障切换，返回 0
+    // 当前正在执行故障切换，则返回 0
     if (master->flags & SRI_FAILOVER_IN_PROGRESS) return 0;
 
     /* Last failover attempt started too little time ago? */
