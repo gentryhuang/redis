@@ -1187,18 +1187,25 @@ void clusterRenameNode(clusterNode *node, char *newname) {
  * -------------------------------------------------------------------------- */
 
 /* Return the greatest configEpoch found in the cluster, or the current
- * epoch if greater than any node configEpoch. */
+ * epoch if greater than any node configEpoch.
+ *
+ * 返回集群中(当前服务节点视角下）找到的最大 configEpoch，如果大于任何节点 configEpoch，则返回当前 epoch。
+ *
+ */
 uint64_t clusterGetMaxEpoch(void) {
     uint64_t max = 0;
     dictIterator *di;
     dictEntry *de;
 
+    // 找出节点中最大的纪元
     di = dictGetSafeIterator(server.cluster->nodes);
     while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         if (node->configEpoch > max) max = node->configEpoch;
     }
     dictReleaseIterator(di);
+
+    // 如果节点中最大的纪元 < 当前节点集群纪元，那就使用当前节点的集群纪元
     if (max < server.cluster->currentEpoch) max = server.cluster->currentEpoch;
     return max;
 }
@@ -1206,10 +1213,22 @@ uint64_t clusterGetMaxEpoch(void) {
 /* If this node epoch is zero or is not already the greatest across the
  * cluster (from the POV of the local configuration), this function will:
  *
+ * 如果此节点 epoch 为零或还不是整个集群中的最大节点（来自本地配置的 POV），则此函数将：
+ *
  * 1) Generate a new config epoch, incrementing the current epoch.
+ *
+ * 生成一个新的配置纪元，增加当前纪元。
+ *
+ *
  * 2) Assign the new epoch to this node, WITHOUT any consensus.
+ *
+ * 将新纪元分配给该节点，无需任何共识。
+ *
+ *
  * 3) Persist the configuration on disk before sending packets with the
  *    new configuration.
+ *
+ * 在使用新配置发送数据包之前，将配置保存在磁盘上。
  *
  * If the new config epoch is generated and assigned, C_OK is returned,
  * otherwise C_ERR is returned (since the node has already the greatest
@@ -1233,18 +1252,28 @@ uint64_t clusterGetMaxEpoch(void) {
  * config epochs. However using this function may violate the "last failover
  * wins" rule, so should only be used with care. */
 int clusterBumpConfigEpochWithoutConsensus(void) {
+    // 1 获取当前服务节点集群最大纪元（注意，当前服务节点集群中可能存在节点的纪元比较大）
     uint64_t maxEpoch = clusterGetMaxEpoch();
 
+    // 2 如果当前服务节点 epoch 为零或还不是整个集群中的最大节点
     if (myself->configEpoch == 0 ||
         myself->configEpoch != maxEpoch) {
+
+        // 2.1 递增当前节点的集群纪元
         server.cluster->currentEpoch++;
+
+        // 2.2 将新纪元分配给当前服务节点
+        // todo 注意，这里无需任何共识，但如果是走正常流程，那么是赢得了选票后才会更新该属性的
         myself->configEpoch = server.cluster->currentEpoch;
+
+        // 待更新配置
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
                              CLUSTER_TODO_FSYNC_CONFIG);
         serverLog(LL_WARNING,
                   "New configEpoch set to %llu",
                   (unsigned long long) myself->configEpoch);
         return C_OK;
+
     } else {
         return C_ERR;
     }
@@ -2682,23 +2711,43 @@ int clusterProcessPacket(clusterLink *link) {
         }
 
 
+        // 收到从节点发送的 MFSTART 手动故障转移消息
+        // 消息发送函数：clusterSendMFStart(clusterNode *node)
     } else if (type == CLUSTERMSG_TYPE_MFSTART) {
         /* This message is acceptable only if I'm a master and the sender
          * is one of my slaves. */
+        // 1 仅当当前服务节点是主节点并且发送者是它的从节点之一时，此消息才可接受。
         if (!sender || sender->slaveof != myself) return 1;
+
         /* Manual failover requested from slaves. Initialize the state
-         * accordingly. */
+         * accordingly.
+         *
+         * 2 从服务器请求手动故障转移。相应地初始化状态
+         */
         resetManualFailover();
+
+        // 手动故障转移执行的时间限制
         server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
+        // 手动故障转移的从节点
         server.cluster->mf_slave = sender;
+
+        // 3 停止处理所有客户端的写请求，直到给定的时间
         pauseClients(now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT), CLIENT_PAUSE_WRITE);
+
         serverLog(LL_WARNING, "Manual failover requested by replica %.40s.",
                   sender->name);
+
         /* We need to send a ping message to the replica, as it would carry
          * `server.cluster->mf_master_offset`, which means the master paused clients
          * at offset `server.cluster->mf_master_offset`, so that the replica would
          * know that it is safe to set its `server.cluster->mf_can_start` to 1 so as
-         * to complete failover as quickly as possible. */
+         * to complete failover as quickly as possible.
+         *
+         * 我们需要向副本发送一个 ping 消息，因为它会携带 `server.cluster->mf_master_offset`，
+         * 这意味着 master 在偏移量 `server.cluster->mf_master_offset` 处暂停了客户端，以便副本知道它是安全地将其 `server.cluster->mf_can_start` 设置为 1，以便尽快完成故障转移。
+         *
+         */
+        // 4 主节点发送对应从节点复制偏移量
         clusterSendPing(link, CLUSTERMSG_TYPE_PING);
 
 
@@ -3631,17 +3680,23 @@ void clusterSendFailoverAuth(clusterNode *node) {
     clusterSendMessage(node->link, (unsigned char *) buf, totlen);
 }
 
-/* Send a MFSTART message to the specified node. */
-// 向给定的节点发送一条 MFSTART 消息
+/* Send a MFSTART message to the specified node.
+ *
+ *  向给定的节点发送一条 MFSTART 消息
+ */
 void clusterSendMFStart(clusterNode *node) {
     clusterMsg buf[1];
     clusterMsg *hdr = (clusterMsg *) buf;
     uint32_t totlen;
 
     if (!node->link) return;
+
+    // 构建 MFSTART 消息
     clusterBuildMessageHdr(hdr, CLUSTERMSG_TYPE_MFSTART);
     totlen = sizeof(clusterMsg) - sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
+
+    // 将 MFSTART 消息发给节点 node
     clusterSendMessage(node->link, (unsigned char *) buf, totlen);
 }
 
@@ -3973,8 +4028,10 @@ void clusterHandleSlaveFailover(void) {
     // todo 注意下线的主节点也算在投票数内
     int needed_quorum = (server.cluster->size / 2) + 1;
 
-    // 是否可以执行手动故障转移
+    // todo 是否可以执行手动故障转移： 设置了手动故障转移时间限制 & 标记了故障转移
     int manual_failover = server.cluster->mf_end != 0 && server.cluster->mf_can_start;
+
+
     mstime_t auth_timeout, auth_retry_time;
 
     // 重置故障转移标志
@@ -3993,11 +4050,11 @@ void clusterHandleSlaveFailover(void) {
      * Retry is two times the Timeout.
      * 故障转移重试时间的值：2 * Timeout
      */
-    // 故障转移超时时间
+    // todo 故障转移超时时间
     auth_timeout = server.cluster_node_timeout * 2;
     if (auth_timeout < 2000) auth_timeout = 2000;
 
-    // 故障转移重试时间
+    // todo 故障转移重试时间
     auth_retry_time = auth_timeout * 2;
 
     /* Pre conditions to run the function, that must be met both in case
@@ -4093,12 +4150,12 @@ void clusterHandleSlaveFailover(void) {
 
 
         /* However if this is a manual failover, no delay is needed. */
-        // 但是，如果这是手动故障转移，则不需要延迟。
+        // todo 但是，如果这是手动故障转移，则不需要延迟。
         if (server.cluster->mf_end) {
             server.cluster->failover_auth_time = mstime();
             server.cluster->failover_auth_rank = 0;
 
-            // 设置进入下次事件循环前，执行故障转移
+            // 设置进入下次事件循环前（clusterBeforeSleep)，立即执行故障转移
             clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         }
         serverLog(LL_WARNING,
@@ -4118,9 +4175,16 @@ void clusterHandleSlaveFailover(void) {
      * slaves for the same master since we computed our election delay.
      * Update the delay if our rank changed.
      *
-     * Not performed if this is a manual failover. */
+     * todo 对于非手动故障转移，计算了选举延迟，那么在发起投票请求前，可能同一主服务器的其他从服务器的偏移量更新了。如果排名发生变化，也要更新延迟时间；
+     *
+     * Not performed if this is a manual failover.
+     * 如果这是手动故障转移，则不执行。
+     */
     if (server.cluster->failover_auth_sent == 0 && server.cluster->mf_end == 0) {
+        // 获取当前从节点的复制偏移量的排名
         int newrank = clusterGetSlaveRank();
+
+        // 如果排名发生了改变，那么重新计算延迟时间
         if (newrank > server.cluster->failover_auth_rank) {
             long long added_delay =
                     (newrank - server.cluster->failover_auth_rank) * 1000;
@@ -4130,6 +4194,7 @@ void clusterHandleSlaveFailover(void) {
                       "Replica rank updated to #%d, added %lld milliseconds of delay.",
                       newrank, added_delay);
         }
+
     }
 
     /* Return ASAP if we can't still start the election. */
@@ -4188,7 +4253,7 @@ void clusterHandleSlaveFailover(void) {
         /* Update my configEpoch to the epoch of the election. */
         //  todo 更新选举任期
         if (myself->configEpoch < server.cluster->failover_auth_epoch) {
-            // 将当前节点的故障转移纪元，设置到当前节点的纪元中
+            // 将当前节点集群的故障转移纪元，设置到当前节点的纪元中
             myself->configEpoch = server.cluster->failover_auth_epoch;
             serverLog(LL_WARNING,
                       "configEpoch set to %llu after successful failover",
@@ -4358,10 +4423,13 @@ void clusterHandleSlaveMigration(int max_slaves) {
  *
  */
 void resetManualFailover(void) {
+
+    // 如果手动故障转移，那么尝试取消暂停客户端
     if (server.cluster->mf_end) {
         checkClientPauseTimeoutAndReturnIfPaused();
     }
-    server.cluster->mf_end = 0; /* No manual failover in progress. */
+
+    server.cluster->mf_end = 0; /* No manual failover in progress. 没有正在进行的手动故障转移。*/
     server.cluster->mf_can_start = 0;
     server.cluster->mf_slave = NULL;
     server.cluster->mf_master_offset = -1;
@@ -4385,31 +4453,41 @@ void manualFailoverCheckTimeout(void) {
  * forward with a manual failover state machine.
  *
  * 该函数从集群cron函数中调用，以便继续使用手动故障转移状态机。
+ *
+ * todo 尝试标记开始故障转移 CLUSTER_TODO_HANDLE_FAILOVER
  */
 void clusterHandleManualFailover(void) {
     /* Return ASAP if no manual failover is in progress. */
-    // 如果没有进行手动故障转移，则尽快返回。
+    // 1 如果没有进行手动故障转移，则尽快返回。
+    // todo 判断是否进行了手动故障转移，依据有没有设置手动故障转移执行的时间限制
     if (server.cluster->mf_end == 0) return;
 
     /* If mf_can_start is non-zero, the failover was already triggered so the
      * next steps are performed by clusterHandleSlaveFailover(). */
-    // 如果 mf_can_start 不为零，则故障转移已触发，后续步骤由 clusterHandleSlaveFailover() 执行
+    // 2 如果 mf_can_start 不为零，则故障转移已触发，后续步骤由 clusterHandleSlaveFailover() 执行，这里直接返回即可
     if (server.cluster->mf_can_start) return;
 
+    //  3 等待追上主节点复制偏移量，这里直接返回
     if (server.cluster->mf_master_offset == -1) return; /* Wait for offset... */
 
 
-    // 当前节点的复制偏移量与客户端暂停后宣布的主复制偏移量相匹配，则可以启动故障转移。
+    // 4 当前节点的复制偏移量与客户端暂停后宣布的主复制偏移量相匹配，则可以启动故障转移。
+    // todo 非强制手动故障转移，从节点会通知主节点暂停客户端写命令，用于从节点可以快速赶上主节点复制进度
     if (server.cluster->mf_master_offset == replicationGetSlaveOffset()) {
         /* Our replication offset matches the master replication offset
          * announced after clients were paused. We can start the failover. */
+        // 4.1 启动手动故障转移
         server.cluster->mf_can_start = 1;
         serverLog(LL_WARNING,
                   "All master replication stream processed, "
                   "manual failover can start.");
+
+        // 4.2 待处理故障转移
         clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         return;
     }
+
+    // 5 继续设置：待判断是否处理手动故障转移，待下次判断是否可以启动手动故障转移
     clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_MANUALFAILOVER);
 }
 
@@ -4725,13 +4803,14 @@ void clusterCron(void) {
     }
 
     /* Abort a manual failover if the timeout is reached. */
-    // 4 如果达到超时，则中止手动故障转移。
+    // 4 如果达到超时，则中止手动故障转移操作
     manualFailoverCheckTimeout();
 
-    // 如果当前节点是从节点
+    // 5 如果当前节点是从节点，判断是否要标记故障转移开始
     if (nodeIsSlave(myself)) {
 
-        // 转移状态设置
+        // 5.1 todo 如果进行了手动故障转移， 则尝试设置事件循环状态为 CLUSTER_TODO_HANDLE_FAILOVER，
+        // todo 待下次事件进入前(clusterBeforeSleep() 中)执行故障转移操作，和 clusterBeforeSleep 配合实现手动故障转换流程
         clusterHandleManualFailover();
 
         if (!(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
@@ -4758,7 +4837,22 @@ void clusterCron(void) {
  * handlers, or to perform potentially expansive tasks that we need to do
  * a single time before replying to clients.
  *
- * 在进入下个事件循环时调用。这个函数做的事都是需要尽快执行，但是不能在执行文件事件期间做的事情。
+ * 在进入下个事件循环时调用。注意完成以下四个任务：
+ *
+ * 1 如果是手动故障转移，尝试进行启动故障转移打标记 CLUSTER_TODO_HANDLE_FAILOVER
+ * 2 如果已经是 CLUSTER_TODO_HANDLE_FAILOVER ，则开始整个故障转移流程
+ * ------
+ * 对于故障转移，整个串联：
+ * 1）客户端向从节点发送 cluster failover [FORCE|TAKEOVER] 命令，执行手动故障转移，这时会设置故障转移的限制时间，
+ *    这个时间作为从节点判断是否接收到故障转移命令，后续的 clusterCron 会根据它初始化手动故障转移状态
+ * 2）clusterCron 周期性检测当前从节点是否等到和主节点复制偏移量相同（暂停客户端写时对应的偏移量），
+ *    如果相同设置  CLUSTER_TODO_HANDLE_FAILOVER， 否则设置 CLUSTER_TODO_HANDLE_MANUALFAILOVER
+ * 3）clusterBeforeSleep() 每次进入下次时间事件之前，也会检测是否可以执行手动故障转移流程
+ * ------
+ *
+ * 3 更细节点状态
+ * 4 刷新配置
+ *
  */
 void clusterBeforeSleep(void) {
     int flags = server.cluster->todo_before_sleep;
@@ -4768,12 +4862,16 @@ void clusterBeforeSleep(void) {
     // 重置进入下个事件循环之前要做的事情的标志
     server.cluster->todo_before_sleep = 0;
 
-    // 如果是手动故障转移
+    // 如果是待判断是否处理手动故障转移
     if (flags & CLUSTER_TODO_HANDLE_MANUALFAILOVER) {
         /* Handle manual failover as soon as possible so that won't have a 100ms
          * as it was handled only in clusterCron */
+
         // 尽快处理手动故障转移，这样就不会有100ms的时间，因为它只在clusterCron中处理
         if (nodeIsSlave(myself)) { // 当前节点是从节点
+
+            // 尝试标记开始故障转移 CLUSTER_TODO_HANDLE_FAILOVER
+            // todo clusterCron 也可能会调用这个方法
             clusterHandleManualFailover();
 
             if (!(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
@@ -4781,8 +4879,10 @@ void clusterBeforeSleep(void) {
                 clusterHandleSlaveFailover();
         }
 
-        // 在需要的情况下，执行故障转移逻辑
-        // todo 备注：从节点可以通过定时任务发现自身复制的主节点进入了客观下线时或手动操作，触发故障恢复流程
+        // 如果是待处理故障转移，则执行故障转移
+        // 如 ：
+        // 1 从节点可以通过定时任务发现自身复制的主节点进入了客观下线时或手动操作，触发故障恢复流程
+        // 2 手动故障转移，从节点复制偏移量和主节点一致时，会设置为待执行故障转移
     } else if (flags & CLUSTER_TODO_HANDLE_FAILOVER) {
         /* Handle failover, this is needed when it is likely that there is already
          * the quorum from masters in order to react fast. */
@@ -4795,7 +4895,7 @@ void clusterBeforeSleep(void) {
         clusterUpdateState();
 
     /* Save the config, possibly using fsync. */
-    // 保存 nodes.conf 配置文件
+    // 刷新配置
     if (flags & CLUSTER_TODO_SAVE_CONFIG) {
         int fsync = flags & CLUSTER_TODO_FSYNC_CONFIG;
         clusterSaveConfigOrDie(fsync);
@@ -6156,41 +6256,50 @@ void clusterCommand(client *c) {
 
 
 
-        // 执行手动故障转移
-    } else if (!strcasecmp(c->argv[1]->ptr, "failover") &&
-               (c->argc == 2 || c->argc == 3)) {
+        // 执行手动故障转移，用于指定从节点发起故障转移流程
+    } else if (!strcasecmp(c->argv[1]->ptr, "failover") && (c->argc == 2 || c->argc == 3)) {
 
-        /* CLUSTER FAILOVER [FORCE|TAKEOVER] */
-        /**
+        /* CLUSTER FAILOVER [FORCE|TAKEOVER]
+         *
+         * todo 1 在从节点上执行 cluster failover 命令发起转移流程
+         *
+         * 0 cluster failover 不加任何参数就是手动触发正常的故障转移流程
+         *
          * 1 force：用于当主节点宕机且无法自动完成故障转移情况。从节点收到 cluster failover force 请求时，从节点直接发起选举，不再跟主节点确认复制偏移量（从节点复制延迟数据会丢失）
          *
          * 2 takeover: 用于集群内超过一半以上主节点故障的场景，因为从节点无法收到半数以上主节点投票，所以无法完成选举过程。可以执行 cluster failover takeover 强制转移，接到命令的从节点不再进行
-         *             选举流程而是直接更新本地配置纪元并替换主节点。takeover 故障转移由于没有通过领导者选举发起故障转移，会导致配置纪元存在冲突的可能。当冲突发生时，集群会以 nodeId 字典序更大的一方
-         *             配置为准。
+         *             选举流程而是直接更新本地配置纪元并替换主节点。
+         *             takeover 故障转移由于没有通过领导者选举发起故障转移，会导致配置纪元存在冲突的可能。当冲突发生时，集群会以 nodeId 字典序更大的一方配置为准。
          */
         int force = 0, takeover = 0;
 
-        // 提取 cluster failover 的参数
+        // 1 如果 cluster failover 指定了 force 或 takeover 参数，则处理
         if (c->argc == 3) {
             if (!strcasecmp(c->argv[2]->ptr, "force")) {
                 force = 1;
             } else if (!strcasecmp(c->argv[2]->ptr, "takeover")) {
                 takeover = 1;
                 force = 1; /* Takeover also implies force. */
+
+                // 指定了错误的参数
             } else {
                 addReplyErrorObject(c, shared.syntaxerr);
                 return;
             }
         }
 
-        /* Check preconditions. */
-        // 命令只能发送给从节点
+        /* Check preconditions. 校验当前服务节点是否可以执行手动故障转移命令 */
+        // todo 2 命令只能发送给从节点，即当前节点是从节点
         if (nodeIsMaster(myself)) {
             addReplyError(c, "You should send CLUSTER FAILOVER to a replica");
             return;
+
+            // 复制的主节点不能为空（不然，当前的从节点无法进行故障转移）
         } else if (myself->slaveof == NULL) {
             addReplyError(c, "I'm a replica but my master is unknown to me");
             return;
+
+            // 当前从节点的主节点宕机了，不能使用正常的故障转移流程（cluster failover 不加任何参数就是手动触发正常的故障转移流程）
         } else if (!force &&
                    (nodeFailed(myself->slaveof) ||
                     myself->slaveof->link == NULL)) {
@@ -6199,13 +6308,16 @@ void clusterCommand(client *c) {
             return;
         }
 
-        // 重置手动故障转移的有关属性
+        // 3 因为是新的手动故障转移请求，因此尝试重置手动故障转移的有关属性
         resetManualFailover();
 
-        // 设定手动故障转移的最大执行时限。在 clusterCron 中会用到。
+        // todo 4 设定手动故障转移的最大执行时限，默认 5s
+        // todo 注意，这个值的设置在 clusterCron.clusterHandleManualFailover 的方法中会用到，表示从节点接收了
+        //  故障转移请求，为后面执行故障转移流程的打标做判断。其中 takeover 在执行接管槽后，重置手动故障转移状态，其中该属性重置为 0
         server.cluster->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
 
-        // 用于集群内超过一半以上主节点故障的场景
+        // 5 指定了 takeover 参数，用于集群内超过一半以上主节点故障无法完成投票的场景
+        // todo 接到该命令参数的从节点，不再进行选举流程而是直接更新本地纪元并替换主节点
         if (takeover) {
             /* A takeover does not perform any initial check. It just
              * generates a new configuration epoch for this node without
@@ -6213,27 +6325,33 @@ void clusterCommand(client *c) {
              * configuration. */
             serverLog(LL_WARNING, "Taking over the master (user request).");
 
+            // 尝试更新本地纪元
             clusterBumpConfigEpochWithoutConsensus();
 
+            // 接管槽，替换主节点
             clusterFailoverReplaceYourMaster();
 
-            // 如果这是强制的手动 failover ，那么直接开始 failover ，无须向其他 master 沟通偏移量。
+            // 6 指定了 force 参数，用于主节点宕机且无法自动完成故障转移的情况，即强制故障转移
+            // todo 接到该命令参数的从节点，不再需要主节点投票，即省去了发起投票请求的环节
         } else if (force) {
             /* If this is a forced failover, we don't need to talk with our
              * master to agree about the offset. We just failover taking over
              * it without coordination. */
             serverLog(LL_WARNING, "Forced failover user request accepted.");
+
+            // 标记手动故障转移开始了
             server.cluster->mf_can_start = 1;
 
             // 如果不是强制的话，那么需要和主节点比对相互的偏移量是否一致
         } else {
             serverLog(LL_WARNING, "Manual failover user request accepted.");
+
+            // 给主节点发送 MFSTART 消息，通知主节点要进行手动故障转移了
             clusterSendMFStart(myself->slaveof);
         }
 
 
         addReply(c, shared.ok);
-
 
     } else if (!strcasecmp(c->argv[1]->ptr, "set-config-epoch") && c->argc == 3) {
         /* CLUSTER SET-CONFIG-EPOCH <epoch>

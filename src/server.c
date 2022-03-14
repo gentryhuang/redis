@@ -2320,15 +2320,19 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     updateDictResizePolicy();
 
 
-    /* AOF postponed flush: Try at every cron cycle if the slow fsync
-     * completed. */
+    /* AOF postponed flush: Try at every cron cycle if the slow fsync completed.
+     *
+     * todo 如果有推迟 AOF刷盘，那么尝试立即触发刷盘（如果没有超过 2s 可能会继续推迟）
+     *
+     */
     if (server.aof_state == AOF_ON && server.aof_flush_postponed_start)
         flushAppendOnlyFile(0);
 
     /* AOF write errors: in this case we have a buffer to flush as well and
      * clear the AOF error in case of success to make the DB writable again,
      * however to try every second is enough in case of 'hz' is set to
-     * a higher frequency. */
+     * a higher frequency.
+     */
     run_with_period(1000) {
         if (server.aof_state == AOF_ON && server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);

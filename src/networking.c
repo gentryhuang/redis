@@ -3584,6 +3584,8 @@ void flushSlavesOutputBuffers(void) {
 /* Pause clients up to the specified unixtime (in ms) for a given type of
  * commands.
  *
+ * 对于给定类型的命令，将客户端暂停到指定的 unixtime（以毫秒为单位）。
+ *
  * A main use case of this function is to allow pausing replication traffic
  * so that a failover without data loss to occur. Replicas will continue to receive
  * traffic to faciliate this functionality.
@@ -3595,10 +3597,13 @@ void flushSlavesOutputBuffers(void) {
  * In such a case, the duration is set to the maximum and new end time and the
  * type is set to the more restrictive type of pause. */
 void pauseClients(mstime_t end, pause_type type) {
+    // 暂停类型更大，则更新当前服务节点的客户端暂停类型
+    // 比如：客户端端暂停类型是 CLIENT_PAUSE_OFF 0 ，而传入的是 CLIENT_PAUSE_WRITE
     if (type > server.client_pause_type) {
         server.client_pause_type = type;
     }
 
+    // 尝试更新暂停时间
     if (end > server.client_pause_end_time) {
         server.client_pause_end_time = end;
     }
@@ -3608,11 +3613,15 @@ void pauseClients(mstime_t end, pause_type type) {
      * to track this state so that we don't assert
      * in propagate(). */
     if (server.in_exec) {
+        // 标记暂停
         server.client_pause_in_transaction = 1;
     }
 }
 
-/* Unpause clients and queue them for reprocessing. */
+/* Unpause clients and queue them for reprocessing.
+ *
+ * 取消暂停客户端并将它们排队等待重新处理。
+ */
 void unpauseClients(void) {
     listNode *ln;
     listIter li;
@@ -3628,20 +3637,30 @@ void unpauseClients(void) {
     }
 }
 
-/* Returns true if clients are paused and false otherwise. */
+/* Returns true if clients are paused and false otherwise.
+ *
+ * 如果客户端暂停，则返回 true，否则返回 false。
+ */
 int areClientsPaused(void) {
     return server.client_pause_type != CLIENT_PAUSE_OFF;
 }
 
 /* Checks if the current client pause has elapsed and unpause clients
  * if it has. Also returns true if clients are now paused and false 
- * otherwise. */
+ * otherwise.
+ *
+ */
 int checkClientPauseTimeoutAndReturnIfPaused(void) {
+    // 客户端没有暂停
     if (!areClientsPaused())
         return 0;
+
+    // 客户端暂停时间到了，取消暂停
     if (server.client_pause_end_time < server.mstime) {
         unpauseClients();
     }
+
+    // 返回结果
     return areClientsPaused();
 }
 

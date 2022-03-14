@@ -448,7 +448,8 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * the event loop, we accumulate all the AOF writes in a memory
  * buffer and write it on disk using this function just before entering
  * the event loop again.
- * 因为程序需要在回复客户端之前对 AOF 执行写操作。而客户端能执行写操作的唯一机会是在事件 loop 中，
+ *
+ * todo 因为程序需要在回复客户端之前对 AOF 执行写操作。而客户端能执行写操作的唯一机会是在事件 loop 中，
  * 因此，程序将所有 AOF 写累积到缓存中，并在重新进入事件 loop 之前，将缓存写入到文件中。
  *
  * About the 'force' argument:
@@ -458,11 +459,12 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
  * is still an fsync() going on in the background thread, since for instance
  * on Linux write(2) will be blocked by the background fsync anyway.
  *
- * 当 fsync 策略为每秒钟保存一次时，如果后台线程仍然有 fsync 在执行，那么我们可能会延迟执行冲洗（flush）操作。
+ * todo 当 fsync 策略为每秒钟保存一次时，如果后台线程仍然有 fsync 在执行，那么我们可能会延迟执行冲洗（flush）操作。
  * 因为 Linux 上的 write(2) 会被后台的 fsync 阻塞。
  *
  * When this happens we remember that there is some aof buffer to be
  * flushed ASAP, and will try to do that in the serverCron() function.
+ *
  * 当这种情况发生时，说明需要尽快冲洗 AOF 缓存，程序会尝试在 serverCron() 函数中对缓存进行冲洗。
  *
  *
@@ -510,7 +512,7 @@ void flushAppendOnlyFile(int force) {
          */
         if (sync_in_progress) {
 
-            // 前面没有推迟过 fsync 操作，这里将时间记录下来，然后返回。
+            // 前面没有推迟过 fsync 操作，这里将当前时间记录下来，然后返回。
             // 记录时间的目的是，判断推迟刷盘时间是否超过阈值，也就是 2 秒
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
@@ -544,7 +546,7 @@ void flushAppendOnlyFile(int force) {
      * While this will save us against the server being killed I don't think
      * there is much to do about the whole server stopping for power problems
      * or alike
-     * 当然，如果出现像电源中断这样的不可抗现象，那么 AOF 文件也是可能会出现问题的，这时就要用 redis-check-aof 程序来进行修复。
+     * todo 当然，如果出现像电源中断这样的不可抗现象，那么 AOF 文件也是可能会出现问题的，这时就要用 redis-check-aof 程序来进行修复。
      */
 
     if (server.aof_flush_sleep && sdslen(server.aof_buf)) {
@@ -553,7 +555,7 @@ void flushAppendOnlyFile(int force) {
 
     latencyStartMonitor(latency);
 
-    // write 写入缓冲区
+    // todo write 写入缓冲区
     nwritten = aofWrite(server.aof_fd, server.aof_buf, sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:

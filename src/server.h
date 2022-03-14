@@ -460,7 +460,10 @@ typedef enum {
 #define PROPAGATE_REPL 2
 
 /* Client pause types, larger types are more restrictive
- * pause types than smaller pause types. */
+ * pause types than smaller pause types.
+ *
+ * 客户端暂停类型，较大类型的暂停类型比较小的暂停类型更具限制性。
+ */
 typedef enum {
     CLIENT_PAUSE_OFF = 0, /* Pause no commands */
     CLIENT_PAUSE_WRITE,   /* Pause write commands */
@@ -1458,6 +1461,8 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
+
+    // 是否执行了客户端暂停？
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
@@ -1513,7 +1518,10 @@ struct redisServer {
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
+
+    // 暂停处理客户端
     pause_type client_pause_type;      /* True if clients are currently paused */
+
     list *paused_clients;       /* List of pause clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
@@ -2018,10 +2026,12 @@ struct redisServer {
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_tls_port; /* TLS port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
+
     int cluster_module_flags;      /* Set of flags that Redis modules are able
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
+
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */

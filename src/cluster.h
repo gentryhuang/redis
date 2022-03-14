@@ -29,7 +29,10 @@
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
+
+// 手动故障转移的超时时间 默认 5s
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
+
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 
 // 在进行手动的故障转移之前，需要等待的超时时间
@@ -162,7 +165,7 @@ typedef struct clusterLink {
 #define CLUSTER_TODO_UPDATE_STATE (1<<1)
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
-#define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
+#define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4) // 待判断是否处理手动故障转移
 
 /* Message types.
  * 节点间通信的消息类型
@@ -208,7 +211,9 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
- * features to be enabled. Useful when implementing a different distributed
+ * features to be enabled.
+ *
+ * Useful when implementing a different distributed
  * system on top of Redis Cluster message bus, using modules. */
 #define CLUSTER_MODULE_FLAG_NONE 0
 #define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
@@ -395,7 +400,7 @@ typedef struct clusterState {
                                    It is zero if there is no MF in progress. */
 
     /* Manual failover state of master.*/
-    clusterNode *mf_slave;      /* Slave performing the manual failover. */
+    clusterNode *mf_slave;      /* Slave performing the manual failover. 从节点执行手动故障转移。 */
 
     /* Manual failover state of slave.*/
     long long mf_master_offset; /* Master offset the slave needs to start MF or -1 if still not received. */
