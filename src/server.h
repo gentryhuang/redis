@@ -2170,12 +2170,34 @@ struct redisFunctionSym {
     unsigned long pointer;
 };
 
+/**
+ * 用于保存被排序值及其权重的结构
+ *
+ * 根据 SORT 命令使用的选项不同，该结构变更和返回也不同。
+ */
 typedef struct _redisSortObject {
+    /**
+     * 被排序键的值
+     */
     robj *obj;
+
+    /**
+     * 值的权重
+     *
+     * 1. 如果被排序键的值是数字类型，那么值的权重使用 score 保存，score 就是值
+     * 2. 如果排序使用到了 by 选项(使用其他键的值作为权重），那么：
+     *    2.1 如果 by 选项（如*-price) 匹配的键对应的值是数字，那么使用 score 保存该数字，作为排序的权重；
+     *    2.2 如果 by 选项（如*-xxx)匹配的键对应的值是字符串，那么使用 cmpobj 保存该值，作为排序的权重；
+     * 3. 如果被排序键的值是字符串，那么值的权重 u 不会被使用
+     *
+     */
     union {
+
         double score;
+
         robj *cmpobj;
     } u;
+
 } redisSortObject;
 
 typedef struct _redisSortOperation {

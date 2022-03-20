@@ -187,11 +187,19 @@ int sortCompare(const void *s1, const void *s2) {
     return server.sort_desc ? -cmp : cmp;
 }
 
-/* The SORT command is the most complex command in Redis. Warning: this code
- * is optimized for speed and a bit less for readability */
+/* The SORT command is the most complex command in Redis.
+ *
+ * SORT 命令是 Redis 中最复杂的命令。
+ *
+ * Warning: this code is optimized for speed and a bit less for readability
+ *
+ * 警告：此代码针对速度进行了优化，但在可读性方面有所优化
+ */
 void sortCommand(client *c) {
     list *operations;
     unsigned int outputlen = 0;
+
+    // 1 初始化排序规则，升序、非字符串
     int desc = 0, alpha = 0;
     long limit_start = 0, limit_count = -1, start, end;
     int j, dontsort = 0, vectorlen;
@@ -199,23 +207,40 @@ void sortCommand(client *c) {
     int int_conversion_error = 0;
     int syntax_error = 0;
     robj *sortval, *sortby = NULL, *storekey = NULL;
+
+    // 要排序的结果集
     redisSortObject *vector; /* Resulting vector to sort */
 
     /* Create a list of operations to perform for every sorted element.
-     * Operations can be GET */
+     *
+     * todo 2 为每个排序的元素创建一个操作列表。
+     *
+     * Operations can be GET
+     * 可以是 GET 选项
+     */
     operations = listCreate();
     listSetFreeMethod(operations,zfree);
     j = 2; /* options start at argv[2] */
 
-    /* The SORT command has an SQL-alike syntax, parse it */
+    /* The SORT command has an SQL-alike syntax, parse it
+     *
+     * todo 3 SORT 命令具有类似 SQL 的语法，解析它
+     *
+     * 格式： SORT key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination]
+     */
     while(j < c->argc) {
         int leftargs = c->argc-j-1;
+        // 1 处理 [ASC|DESC]
         if (!strcasecmp(c->argv[j]->ptr,"asc")) {
             desc = 0;
         } else if (!strcasecmp(c->argv[j]->ptr,"desc")) {
             desc = 1;
+
+            // 2 处理 [ALPHA]
         } else if (!strcasecmp(c->argv[j]->ptr,"alpha")) {
             alpha = 1;
+
+            // 3 处理 [LIMIT offset count]
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
             if ((getLongFromObjectOrReply(c, c->argv[j+1], &limit_start, NULL)
                  != C_OK) ||
@@ -226,13 +251,21 @@ void sortCommand(client *c) {
                 break;
             }
             j+=2;
+
+            // 4 处理 [STORE destination]
         } else if (!strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
             storekey = c->argv[j+1];
             j++;
+
+            // 5 处理 [BY pattern]
+            // 根据匹配的其他键的值进行排序
         } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
             sortby = c->argv[j+1];
             /* If the BY pattern does not contain '*', i.e. it is constant,
-             * we don't need to sort nor to lookup the weight keys. */
+             * we don't need to sort nor to lookup the weight keys.
+             *
+             * 如果 BY 模式不包含 *，即它是常量，我们不需要排序也不需要查找权重键。
+             */
             if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
                 dontsort = 1;
             } else {
@@ -245,12 +278,17 @@ void sortCommand(client *c) {
                 }
             }
             j++;
+
+            // 6 处理 [GET pattern [GET pattern ...]]
+            // 对排序的结果，进行模式匹配键。todo 如 *-id ，使用元素进行占位 * ，例如 app-id
         } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
+            // 集群不支持该选项
             if (server.cluster_enabled) {
                 addReplyError(c,"GET option of SORT denied in Cluster mode.");
                 syntax_error++;
                 break;
             }
+
             listAddNodeTail(operations,createSortOperation(
                 SORT_OP_GET,c->argv[j+1]));
             getop++;
@@ -270,10 +308,14 @@ void sortCommand(client *c) {
     }
 
     /* Lookup the key to sort. It must be of the right types */
+    // 4 获取待排序集合
+    // 是否需要对排序的结果保存
     if (!storekey)
         sortval = lookupKeyRead(c->db,c->argv[1]);
     else
         sortval = lookupKeyWrite(c->db,c->argv[1]);
+
+    // 5 校验，待排序键的类型必须是集合类型
     if (sortval && sortval->type != OBJ_SET &&
                    sortval->type != OBJ_LIST &&
                    sortval->type != OBJ_ZSET)
@@ -286,6 +328,7 @@ void sortCommand(client *c) {
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroyed */
+
     if (sortval)
         incrRefCount(sortval);
     else
@@ -309,10 +352,12 @@ void sortCommand(client *c) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
+    // 破坏性地转换编码的排序集以进行排序
     if (sortval->type == OBJ_ZSET)
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
 
     /* Objtain the length of the object to sort. */
+    // 5 获取要排序的对象的长度
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
     case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
@@ -321,6 +366,7 @@ void sortCommand(client *c) {
     }
 
     /* Perform LIMIT start,count sanity checking. */
+    // 执行 LIMIT 启动，计数完整性检查
     start = (limit_start < 0) ? 0 : limit_start;
     end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
     if (start >= vectorlen) {
@@ -347,9 +393,11 @@ void sortCommand(client *c) {
     }
 
     /* Load the sorting vector with all the objects to sort */
+    // tood 6 创建一个和待排序集合一样大小的数组
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
 
+    // 7 todo 遍历待排序集合，构成 redisSortObject.obj 指针和列表项之间的一对一关系
     if (sortval->type == OBJ_LIST && dontsort) {
         /* Special handling for a list, if 'dontsort' is true.
          * This makes sure we return elements in the list original
@@ -360,10 +408,11 @@ void sortCommand(client *c) {
         if (end >= start) {
             listTypeIterator *li;
             listTypeEntry entry;
+            // 获取待排序集合的迭代器
             li = listTypeInitIterator(sortval,
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
-
+            // 遍历集合，为每个元素对应的 redisSortObject 结构填充 obj ，并初始化 u.score 和 u.cmpobj
             while(j < vectorlen && listTypeNext(li,&entry)) {
                 vector[j].obj = listTypeGet(&entry);
                 vector[j].u.score = 0;
@@ -376,7 +425,10 @@ void sortCommand(client *c) {
             start = 0;
         }
     } else if (sortval->type == OBJ_LIST) {
+        // 获取待排序集合的迭代器
         listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
+
+        // 遍历集合，为每个元素对应的 redisSortObject 结构填充 obj ，并初始化 u.score 和 u.cmpobj
         listTypeEntry entry;
         while(listTypeNext(li,&entry)) {
             vector[j].obj = listTypeGet(&entry);
@@ -385,6 +437,8 @@ void sortCommand(client *c) {
             j++;
         }
         listTypeReleaseIterator(li);
+
+        // 同理
     } else if (sortval->type == OBJ_SET) {
         setTypeIterator *si = setTypeInitIterator(sortval);
         sds sdsele;
@@ -454,30 +508,53 @@ void sortCommand(client *c) {
     serverAssertWithInfo(c,sortval,j == vectorlen);
 
     /* Now it's time to load the right scores in the sorting vector */
+    // todo 8 前面通过遍历集合，已经将每个元素对应的 redisSortObject 结构进行了初始化，现在根据不同的情况确定排序元素的权重
     if (!dontsort) {
+        // 遍历 redisSortObject 数组，
         for (j = 0; j < vectorlen; j++) {
             robj *byval;
+
+            // 8.1 处理 by 选项
+            // 指定了 by
             if (sortby) {
                 /* lookup value to sort by */
+                // 获取 by 匹配键的值，注意这个值可能是数字，也可能是字符串
                 byval = lookupKeyByPattern(c->db,sortby,vector[j].obj,storekey!=NULL);
+
+                // todo 没有对应的值，直接返回
                 if (!byval) continue;
+
+                // 没有指定，就使用元素自己
             } else {
                 /* use object itself to sort by */
                 byval = vector[j].obj;
             }
 
+            // 8.2 根据是字符串排序还是数值排序，更新 redisSortObject 中元素的权重
+
+            // 字符串排序
             if (alpha) {
+
+                // 如果指定了 by ，那么使用 u.cmpobj 存放对应字符串值
                 if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
+
+                // 没有指定，就不需要更新 u.cmpobj
+
+                // 数值排序
             } else {
+                // 非 int 编码
                 if (sdsEncodedObject(byval)) {
                     char *eptr;
 
+                    // byval 的值，这个值是个数字
                     vector[j].u.score = strtod(byval->ptr,&eptr);
                     if (eptr[0] != '\0' || errno == ERANGE ||
                         isnan(vector[j].u.score))
                     {
                         int_conversion_error = 1;
                     }
+
+                    // int 编码
                 } else if (byval->encoding == OBJ_ENCODING_INT) {
                     /* Don't need to decode the object if it's
                      * integer-encoded (the only encoding supported) so
@@ -499,6 +576,8 @@ void sortCommand(client *c) {
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
         server.sort_store = storekey ? 1 : 0;
+
+        // 9 排序
         if (sortby && (start != 0 || end != vectorlen-1))
             pqsort(vector,vectorlen,sizeof(redisSortObject),sortCompare, start,end);
         else
@@ -507,9 +586,12 @@ void sortCommand(client *c) {
 
     /* Send command output to the output buffer, performing the specified
      * GET/DEL/INCR/DECR operations if any. */
+    // 10 将命令输出发送到输出缓冲区，执行指定的 GETDELINCRDECR 操作（如果有）
     outputlen = getop ? getop*(end-start+1) : end-start+1;
     if (int_conversion_error) {
         addReplyError(c,"One or more scores can't be converted into double");
+
+        // 10.1 不保存排序结果
     } else if (storekey == NULL) {
         /* STORE option not specified, sent the sorting result to client */
         addReplyArrayLen(c,outputlen);
@@ -521,9 +603,10 @@ void sortCommand(client *c) {
             listRewind(operations,&li);
             while((ln = listNext(&li))) {
                 redisSortOperation *sop = ln->value;
+
+                // 处理 GET 选项
                 robj *val = lookupKeyByPattern(c->db,sop->pattern,
                     vector[j].obj,storekey!=NULL);
-
                 if (sop->type == SORT_OP_GET) {
                     if (!val) {
                         addReplyNull(c);
@@ -537,6 +620,8 @@ void sortCommand(client *c) {
                 }
             }
         }
+
+        // 保存排序结果
     } else {
         robj *sobj = createQuicklistObject();
 
@@ -551,9 +636,10 @@ void sortCommand(client *c) {
                 listRewind(operations,&li);
                 while((ln = listNext(&li))) {
                     redisSortOperation *sop = ln->value;
+
+                    // 处理 GET 选项
                     robj *val = lookupKeyByPattern(c->db,sop->pattern,
                         vector[j].obj,storekey!=NULL);
-
                     if (sop->type == SORT_OP_GET) {
                         if (!val) val = createStringObject("",0);
 
