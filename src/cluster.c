@@ -1637,6 +1637,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
      * handshake. */
     // 3 创建集群节点
     // 对给定地址的节点设置一个随机名字，当握手完成时，当前节点会取得给定地址节点的名字，到时会用真名替换随机名
+    // todo 设置节点的状态为 CLUSTER_NODE_MEET ，后续当前服务节点会向该节点发送 MEET 消息
     n = createClusterNode(NULL, CLUSTER_NODE_HANDSHAKE | CLUSTER_NODE_MEET);
 
     memcpy(n->ip, norm_ip, sizeof(n->ip));
@@ -2876,10 +2877,12 @@ void clusterLinkConnectHandler(connection *conn) {
      * of a PING one, to force the receiver to add us in its node
      * table.
      *
-     * 如果节点被标记为 MEET，我们发送 MEET 消息而不是 PING 消息，以强制接收者将我们添加到其节点表中。
+     * todo 如果节点被标记为 MEET，我们发送 MEET 消息而不是 PING 消息，以强制接收者将我们添加到其节点表中。
      * 因为 MEET 消息，接受者如果不认识发送者和消息体中的节点，会将它们加入到集群中
      */
     mstime_t old_ping_sent = node->ping_sent;
+
+    // todo 这里发送 MEET 消息的地方
     clusterSendPing(link, node->flags & CLUSTER_NODE_MEET ?
                           CLUSTERMSG_TYPE_MEET : CLUSTERMSG_TYPE_PING);
     if (old_ping_sent) {
@@ -5092,13 +5095,16 @@ void clusterCloseAllSlots(void) {
 #define CLUSTER_MIN_REJOIN_DELAY 500
 #define CLUSTER_WRITABLE_DELAY 2000
 
-// 更新节点状态
+/**
+ * 更新节点状态
+ */
 void clusterUpdateState(void) {
     int j, new_state;
     int reachable_masters = 0;
     static mstime_t among_minority_time;
     static mstime_t first_call_time = 0;
 
+    // 1 重置更新集群状态标记，后续有需要，那么需要重新设置标记
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_UPDATE_STATE;
 
     /* If this is a master node, wait some time before turning the state
@@ -5115,11 +5121,15 @@ void clusterUpdateState(void) {
 
     /* Start assuming the state is OK. We'll turn it into FAIL if there
      * are the right conditions. */
+    // 2 初始化集群是上线状态，如果条件合适，我们会将其变为 下线状态。
     new_state = CLUSTER_OK;
 
     /* Check if all the slots are covered. */
+    // 3 检查是否所有槽都被指派
+    // todo 如果设置了故障转移期间允许 槽不被完全指派 ，那么不进行槽全部被指派的校验
     if (server.cluster_require_full_coverage) {
         for (j = 0; j < CLUSTER_SLOTS; j++) {
+            // todo 存在槽没有被指派 ，或 负责槽的主节点下线了，那么标记操作集群属于下线状态
             if (server.cluster->slots[j] == NULL ||
                 server.cluster->slots[j]->flags & (CLUSTER_NODE_FAIL)) {
                 new_state = CLUSTER_FAIL;
@@ -5131,6 +5141,8 @@ void clusterUpdateState(void) {
     /* Compute the cluster size, that is the number of master nodes
      * serving at least a single slot.
      *
+     * todo 4 计算集群大小，即至少负责一个槽的主节点的数量。
+     *
      * At the same time count the number of reachable masters having
      * at least one slot. */
     {
@@ -5138,12 +5150,16 @@ void clusterUpdateState(void) {
         dictEntry *de;
 
         server.cluster->size = 0;
+
+        // 遍历当前服务节点的集群状态下节点集合
         di = dictGetSafeIterator(server.cluster->nodes);
         while ((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
-
+            // todo 统计负责槽的主节点数量
             if (nodeIsMaster(node) && node->numslots) {
                 server.cluster->size++;
+
+                // 如果负责槽的主节点处于非下线状态，那么累加可达的主节点数
                 if ((node->flags & (CLUSTER_NODE_FAIL | CLUSTER_NODE_PFAIL)) == 0)
                     reachable_masters++;
             }
@@ -5152,10 +5168,15 @@ void clusterUpdateState(void) {
     }
 
     /* If we are in a minority partition, change the cluster state
-     * to FAIL. */
+     * to FAIL.
+     *
+     * todo 5 如果我们处于少数分区中，请将集群状态更改为 FAIL。
+     */
     {
+
         int needed_quorum = (server.cluster->size / 2) + 1;
 
+        // 当前服务节点和一半以上的主节点失去联系，那么认为当前服务节点处于少数分区中，标记集群下线
         if (reachable_masters < needed_quorum) {
             new_state = CLUSTER_FAIL;
             among_minority_time = mstime();
@@ -5163,6 +5184,7 @@ void clusterUpdateState(void) {
     }
 
     /* Log a state change */
+    // 6 当前集群状态发生变更
     if (new_state != server.cluster->state) {
         mstime_t rejoin_delay = server.cluster_node_timeout;
 
@@ -5693,6 +5715,7 @@ void clusterCommand(client *c) {
         }
 
         // 1.2 尝试与给定地址的节点进行握手，即为指定地址创建节点对象并尝试加入到当前服务节点的集群中
+        // todo 后续在 clusterCron().clusterLinkConnectHandler() 中向该节点发送 MEET 消息
         if (clusterStartHandshake(c->argv[2]->ptr, port, cport) == 0 &&
             errno == EINVAL) {
 
