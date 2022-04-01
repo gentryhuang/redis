@@ -4545,7 +4545,7 @@ int processCommand(client *c) {
      * todo 可以在一定程度上处理网络分区问题，也就是脑裂。比如哨兵机制，可能出现两个主节点，如果使用该配置，
      *      那么不会存在两个节点都可以处理写请求导致的数据一致性问题。
      *
-     * todo 当然，对于假死期间，也导致无法写
+     * todo 当然，对于主节点假死期间（如卡住了，导致无法收到从节点的消息，那么就会误认为从节点不是好的。），也会导致无法写
      */
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
