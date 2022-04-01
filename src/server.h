@@ -1058,7 +1058,9 @@ typedef struct client {
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
 
     // 从服务器最后一次发送 REPLCONF ACK 给主服务器的时间
+    // todo 同时也表示，从节点向主节点通信发送别的消息的最后一次时间
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
+
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer

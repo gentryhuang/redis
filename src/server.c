@@ -4531,9 +4531,22 @@ int processCommand(client *c) {
     }
 
     /* Don't accept write commands if there are not enough good slaves and
-     * user configured the min-slaves-to-write option. */
-    // 如果服务器没有足够多的状态良好服务器
-    // 并且 min-slaves-to-write 选项已打开
+     * user configured the min-slaves-to-write option.
+     *
+     * todo 如果没有足够好的从节点并且用户配置了 min-slaves-to-write 选项，则不要接受写入命令。
+     * 说明如下：
+     * 1）repl_min_slaves_to_write 和 repl_min_slaves_max_lag 都要开启
+     * 2）repl_min_slaves_max_lag 用于指定从节点和主节点的最大延迟时间，每次在更新 repl_good_slaves_count 值时，
+     *    会对主节点的从节点列表遍历，基于从节点的 client 结构中的 repl_ack_time 判断从节点是否是好的，如果是好的就统计，
+     *    最后将好的从节点数量保存到 repl_good_slaves_count
+     *
+     * 3）repl_min_slaves_to_write 表示，主节点要处理写请求，要求状态好的节点数的最小值。
+     *
+     * todo 可以在一定程度上处理网络分区问题，也就是脑裂。比如哨兵机制，可能出现两个主节点，如果使用该配置，
+     *      那么不会存在两个节点都可以处理写请求导致的数据一致性问题。
+     *
+     * todo 当然，对于假死期间，也导致无法写
+     */
     if (server.masterhost == NULL &&
         server.repl_min_slaves_to_write &&
         server.repl_min_slaves_max_lag &&

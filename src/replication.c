@@ -736,6 +736,8 @@ int masterTryPartialResynchronization(client *c) {
      */
     c->flags |= CLIENT_SLAVE;
     c->replstate = SLAVE_STATE_ONLINE;
+
+    // todo 更新从节点的 ack 时间
     c->repl_ack_time = server.unixtime;
     c->repl_put_online_on_ack = 0;
     listAddNodeTail(server.slaves, c);
@@ -1206,6 +1208,8 @@ void replconfCommand(client *c) {
             if (offset > c->repl_ack_off)
                 c->repl_ack_off = offset;
 
+            // todo 更新当前服务节点的从节点的 ack 上报时间；该时间用于计算延迟时长，然后和 min-slaves-max-lag 比较
+            // todo repl_ack_time 不仅仅作为 ack 上报时间，也作为从节点向主节点通信的更新时间
             c->repl_ack_time = server.unixtime;
             /* If this was a diskless replication, we need to really put
              * the slave online when the first ACK is received (which
@@ -3504,7 +3508,8 @@ void replicationResurrectCachedMaster(connection *conn) {
  *
  * If the option is active, the server will prevent writes if there are not
  * enough connected slaves with the specified lag (or less).
- * 果服务器开启了 min-slaves-max-lag 选项，那么在这个选项所指定的条件达不到时，主服务器将拒绝写操作执行。
+ *
+ * todo 如果服务器开启了 min-slaves-max-lag 选项，那么在这个选项所指定的条件达不到时，主服务器将拒绝写操作执行。
  */
 void refreshGoodSlavesCount(void) {
     listIter li;
@@ -3835,7 +3840,7 @@ void replicationCron(void) {
      * Note that we do not send periodic acks to masters that don't
      * support PSYNC and replication offsets.
      *
-     * 不过如果主服务器带有 REDIS_PRE_PSYNC 的话就不发送，因为带有该标识的版本为 < 2.8 的版本，这些版本不支持 ACK 命令
+     * 不过如果主服务器客户端带有 REDIS_PRE_PSYNC 的话就不发送，因为带有该标识的版本为 < 2.8 的版本，这些版本不支持 ACK 命令
      */
     // 5 从服务器定时向主服务器发送 ACK 命令，上报复制进度等信息
     if (server.masterhost && server.master &&
@@ -4003,7 +4008,7 @@ void replicationCron(void) {
     removeRDBUsedToSyncReplicas();
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
-    // 更新符合给定延迟值的从服务器的数量
+    // todo 更新符合给定延迟值的从服务器的数量
     refreshGoodSlavesCount();
 
     replication_cron_loops++; /* Incremented with frequency 1 HZ. */
