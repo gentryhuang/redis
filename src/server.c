@@ -2029,10 +2029,14 @@ void updateCachedTime(int update_daylight_info) {
     }
 }
 
+/**
+ * 检查子进程是否完成，完成后主线程进行收尾工作
+ */
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
 
+    // 获取 pid
     if ((pid = waitpid(-1, &statloc, WNOHANG)) != 0) {
         int exitcode = WIFEXITED(statloc) ? WEXITSTATUS(statloc) : -1;
         int bysignal = 0;
@@ -2054,11 +2058,18 @@ void checkChildrenDone(void) {
                       strerror(errno),
                       strChildType(server.child_type),
                       (int) server.child_pid);
+
+            // 判断 pid 是否存在
         } else if (pid == server.child_pid) {
+
+            // RDB 子进程
             if (server.child_type == CHILD_TYPE_RDB) {
                 backgroundSaveDoneHandler(exitcode, bysignal);
+
+                // AOF 重写子进程
             } else if (server.child_type == CHILD_TYPE_AOF) {
                 backgroundRewriteDoneHandler(exitcode, bysignal);
+
             } else if (server.child_type == CHILD_TYPE_MODULE) {
                 ModuleForkDoneHandler(exitcode, bysignal);
             } else {
@@ -2267,6 +2278,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
+    // 检查正在进行的后台保存或 AOF 重写是否终止。
+    // todo 父进程收尾子进程
     if (hasActiveChildProcess() || ldbPendingChildren()) {
         run_with_period(1000) receiveChildInfo();
         checkChildrenDone();

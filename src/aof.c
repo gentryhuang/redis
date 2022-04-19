@@ -2204,7 +2204,12 @@ void aofUpdateCurrentSize(void) {
 }
 
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
- * Handle this. */
+ * Handle this.
+ *
+ * 处理 AOF 文件重写终止后的工作
+ *
+ * todo 注意，这个是由主线程处理的
+ */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         int newfd, oldfd;
@@ -2220,6 +2225,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyStartMonitor(latency);
         snprintf(tmpfile, 256, "temp-rewriteaof-bg-%d.aof",
                  (int) server.child_pid);
+
+        // 1 打开子进程生成的新的 aof 文件
         newfd = open(tmpfile, O_WRONLY | O_APPEND);
         if (newfd == -1) {
             serverLog(LL_WARNING,
@@ -2227,6 +2234,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
 
+        // 2 todo 调用aofRewriteBufferWrite()把server.aof_rewrite_buf_blocks中剩余的数据追加到新aof文件
         if (aofRewriteBufferWrite(newfd) == -1) {
             serverLog(LL_WARNING,
                       "Error trying to flush the parent diff to the rewritten AOF: %s", strerror(errno));
@@ -2236,6 +2244,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rewrite-diff-write", latency);
 
+        // 3 根据刷盘策略，进行 fsync
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
             aof_background_fsync(newfd);
         } else if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
@@ -2293,6 +2302,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = -1; /* We'll set this to the current AOF filedes later. */
         }
 
+        // 把新aof文件rename为server.aof_filename记录的文件名
         /* Rename the temporary file. This will not unlink the target file if
          * it exists, because we reference it with "oldfd". */
         latencyStartMonitor(latency);
@@ -2337,6 +2347,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_state = AOF_ON;
 
         /* Asynchronously close the overwritten AOF. */
+        // 使用 bio 后台线程来 close 原来的 aof 文件
         if (oldfd != -1) bioCreateCloseJob(oldfd);
 
         serverLog(LL_VERBOSE,
@@ -2356,6 +2367,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                   "Background AOF rewrite terminated by signal %d", bysignal);
     }
 
+    // 最后是清理工作，包括关闭管道、重置aof-rewrite-buffer、复位server.aof_child_pid=-1等，自此aofrewrite完成。
     cleanup:
     aofClosePipes();
     aofRewriteBufferReset();
