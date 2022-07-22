@@ -328,7 +328,7 @@ typedef enum {
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC                                 可以向主服务器发送 PSYNC 命令   */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply                       等待 PSYNC 的回复*/
     /* --- End of handshake states --- */
-    REPL_STATE_TRANSFER,        /* Receiving .rdb from master                     从节点收到主节点的 RDB*/
+    REPL_STATE_TRANSFER,        /* Receiving .rdb from master                     开始数据同步，即从节点准备收主节点的 RDB*/
     REPL_STATE_CONNECTED,       /* Connected to master                            连接过了*/
 } repl_state;
 
@@ -341,12 +341,14 @@ typedef enum {
 } failover_state;
 
 /* State of slaves from the POV of the master. Used in client->replstate.
+ * 来自主节点的 POV 的从节点的状态。在客户端->replstate 中使用。
+ *
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
-#define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
-#define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
-#define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
+#define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. 等待 bgsave 开始 */
+#define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. 等待 bgsave 结束*/
+#define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave.                  发送 rdb 给从节点*/
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
@@ -1058,7 +1060,7 @@ typedef struct client {
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
 
     // 从服务器最后一次发送 REPLCONF ACK 给主服务器的时间
-    // todo 同时也表示，从节点向主节点通信发送别的消息的最后一次时间
+    // todo 同时也表示，从节点向主节点通信发送别的消息的最后一次时间，不仅仅是 ACK 请求
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
 
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
@@ -1876,6 +1878,8 @@ struct redisServer {
     client *master;     /* Client that is master for this slave                         从库上用来和主库连接的客户端*/
     client *cached_master; /* Cached master to be reused for PSYNC.                     从库上缓存的主库信息*/
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
+
+    // todo 复制状态
     int repl_state;          /* Replication status if the instance is a slave           从库的复制状态机*/
 
     // 主从复制期间，RDB 文件的大小
@@ -1890,7 +1894,7 @@ struct redisServer {
     // 临时文件名
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
 
-
+    // 主从复制时，从节点读取主节点数据的时间
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
 
@@ -1898,6 +1902,8 @@ struct redisServer {
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
+
+    // 是否合并数据包
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
 
     // 从服务器优先级

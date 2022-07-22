@@ -396,10 +396,11 @@ long long timeInMilliseconds(void) {
 int dictRehashMilliseconds(dict *d, int ms) {
     if (d->pauserehash > 0) return 0;
 
+    // 开始时间
     long long start = timeInMilliseconds();
     int rehashes = 0;
 
-    // 以 100 个桶为基本单位迁移数据
+    // 以 100 个桶为基本单位不断迁移数据，直到当前字典 d 中元素被迁移完或者超时
     while (dictRehash(d, 100)) {
         rehashes += 100;
 

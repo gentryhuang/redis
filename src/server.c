@@ -1630,6 +1630,7 @@ int incrementallyRehash(int dbid) {
         dictRehashMilliseconds(server.db[dbid].expires, 1);
         return 1; /* already used our millisecond for this loop... */
     }
+
     return 0;
 }
 
@@ -1924,7 +1925,7 @@ void clientsCron(void) {
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing.
  *
- * 这个函数处理 "后台" 操作，如： 过期键删除、调整大小、rehash
+ * todo 这个函数处理 "后台" 操作包括： 过期键慢删除、调整大小（缩容全局字典）、全局字典的 rehash
  */
 // 对数据库执行删除过期键，调整大小，以及主动和渐进式 rehash
 void databasesCron(void) {
@@ -1949,7 +1950,7 @@ void databasesCron(void) {
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages.
      *
-     * 在磁盘上没有其他进程保存DB的情况，可以执行哈希表 rehash。否则，rehash 是不好的，因为这会导致大量内存页的写时复制。
+     * todo 在磁盘上没有其他进程保存DB的情况，可以执行哈希表 rehash。否则，rehash 是不好的，因为这会导致大量内存页的写时复制。
      */
     // 在没有 BGSAVE 或者 BGREWRITEAOF 执行时，对哈希表进行 rehash
     if (!hasActiveChildProcess()) {
@@ -1967,7 +1968,7 @@ void databasesCron(void) {
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
-        // 调整字典的大小
+        // todo 调整字典的大小，缩容
         for (j = 0; j < dbs_per_call; j++) {
             // 尝试调整 server 的 db 的字典（数据字典 和 过期时间），触发条件是：
             // 字典的两个哈希表的填充 < 10%，那么就需要触发调整字典的大小
@@ -2220,6 +2221,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
+    // 更新以秒为单位的 LRU 时钟
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock, lruclock);
 
@@ -2283,9 +2285,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (hasActiveChildProcess() || ldbPendingChildren()) {
         run_with_period(1000) receiveChildInfo();
         checkChildrenDone();
+
+
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
+
+        // 判断是否触发 RDB
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams + j;
 
@@ -2335,7 +2341,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync completed.
      *
-     * todo 如果有推迟 AOF刷盘，那么尝试立即触发刷盘（如果没有超过 2s 可能会继续推迟）
+     * todo 如果有推迟 AOF刷盘，那么尝试立即触发刷盘（如果没有超过 2s 可能会继续推迟）；主线程检查 AOF 线程是否超时刷盘
      *
      */
     if (server.aof_state == AOF_ON && server.aof_flush_postponed_start)
@@ -2365,8 +2371,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * 如果 Redis 尝试进行故障转移，则更快地运行复制 cron，以便更快地进行握手。
      */
     // todo 主从复制周期处理函数
+    // 尝试故障转移
     if (server.failover_state != NO_FAILOVER) {
         run_with_period(100) replicationCron();
+
+        // 没尝试故障转移
     } else {
         run_with_period(1000) replicationCron();
     }
@@ -2898,7 +2907,7 @@ void initServerConfig(void) {
     server.master = NULL;
     server.cached_master = NULL;
     server.master_initial_offset = -1;
-    // 初始化复制状态为 未激活
+    // todo 初始化复制状态为 未激活
     server.repl_state = REPL_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
@@ -3929,6 +3938,8 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         feedAppendOnlyFile(cmd, dbid, argv, argc);
 
     // 传播到从节点
+    // 1 写入到 backlog
+    // 2 发送给每个从节点
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves, dbid, argv, argc);
 }
