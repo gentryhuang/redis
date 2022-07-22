@@ -233,7 +233,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
-#define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua */
+#define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua 这是 Lua 使用的非连接客户端 */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
@@ -1507,7 +1507,7 @@ struct redisServer {
 
     // 全局等待写队列（客户端等待写链表 - 记录待写回数据的客户端）
     list *clients_pending_write; /* There is to write or install handler. */
-    // 全局等待读队列（客户端等待读链表 - 激励待读取数据的客户端）
+    // 全局等待读队列（客户端等待读链表 - 记录待读取数据的客户端）
     list *clients_pending_read;  /* Client has pending read socket buffers. */
 
     //------------------- IO 线程全局队列 --------------------------/
@@ -2040,7 +2040,7 @@ struct redisServer {
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
-    client *lua_caller;   /* The client running EVAL right now, or NULL */
+    client *lua_caller;   /* The client running EVAL right now, or NULL 正在运行 EVAL 的客户端，或 NULL */
     char *lua_cur_script; /* SHA1 of the script currently running, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */

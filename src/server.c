@@ -4316,7 +4316,7 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * processCommand() execute the command or prepare the
  * server for a bulk read from the client.
  *
- * 这个函数执行时，我们已经读入了一个完整的命令到 Client 里面，这个函数执行该命令，或者服务器准备从客户端中进行一次读取。
+ * todo 这个函数执行时，我们已经读入了一个完整的命令到 Client 里面，这个函数执行该命令，或者服务器准备从客户端中进行一次读取。
  *
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
