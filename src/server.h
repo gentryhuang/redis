@@ -1459,6 +1459,7 @@ struct redisServer {
 
     // 是否是哨兵模式运行
     int sentinel_mode;          /* True if this instance is a Sentinel. */
+
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_eval;                /* Are we inside EVAL? */
@@ -1896,6 +1897,10 @@ struct redisServer {
 
     // 主从复制时，从节点读取主节点数据的时间
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
+
+    /**
+     * 是否响应旧的数据，默认为 1
+     */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
 
     // 从服务器只读

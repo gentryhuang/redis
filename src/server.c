@@ -2269,6 +2269,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Handle background operations on Redis databases. */
     // 处理 Redis 数据库的后台操作
+    // 过期键慢删除、调整大小（缩容全局字典）、全局字典的 rehash
     databasesCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
@@ -2332,6 +2333,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
+
     /* Just for the sake of defensive programming, to avoid forgeting to
      * call this function when need. */
     // 设置是否可以进行 rehash 的标志
@@ -2887,7 +2889,7 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024 * 1024 * 2);
 
-    // 2 初始化 LRU 时间
+    // 2 初始化 LRU 时间，以秒为单位
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock, lruclock);
 
@@ -2907,8 +2909,10 @@ void initServerConfig(void) {
     server.master = NULL;
     server.cached_master = NULL;
     server.master_initial_offset = -1;
+
     // todo 初始化复制状态为 未激活
     server.repl_state = REPL_STATE_NONE;
+
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
     server.repl_transfer_s = NULL;
@@ -4609,7 +4613,10 @@ int processCommand(client *c) {
 
     /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
      * when slave-serve-stale-data is no and we are a slave with a broken
-     * link with master. */
+     * link with master.
+     *
+     * 仅当 slave-serve-stale-data 为 no 且我们是与 master 的链接断开的 slave 时，仅仅处理 info 和 slaveof 命令
+     */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         is_denystale_command) {
@@ -6407,6 +6414,8 @@ void loadDataFromDisk(void) {
                  * of -1 inside the RDB file in a wrong way, see more
                  * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1) {
+
+                // 恢复复制的节点ID 和复制偏移量
                 memcpy(server.replid, rsi.repl_id, sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
@@ -6723,7 +6732,7 @@ int main(int argc, char **argv) {
         // 初始化哨兵的配置
         initSentinelConfig();
 
-        // 执行哨兵模式初始化
+        // 执行哨兵模式初始化，主要包括：填充哨兵使用到的命令和初始化哨兵实例的属性（初始化纪元、监控的主服务器字典）
         initSentinel();
     }
 
@@ -6921,8 +6930,10 @@ int main(int argc, char **argv) {
     } else {
         ACLLoadUsersAtStartup();
         InitServerLast();
+
         // todo Sentinel 准备就绪后就可以启动了
         sentinelIsRunning();
+
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=Ready to accept connections\n");
             redisCommunicateSystemd("READY=1\n");

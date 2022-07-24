@@ -3843,7 +3843,7 @@ void replicationCron(void) {
     }
 
     /* Timed out master when we are an already connected slave? */
-    // 3 从服务器曾经连接上主服务器，但现在超时了
+    // 3 从服务器曾经连接上主服务器，但现在超时了，释放连接主服务器的客户端
     if (server.masterhost && server.repl_state == REPL_STATE_CONNECTED &&
         (time(NULL) - server.master->lastinteraction) > server.repl_timeout) {
         serverLog(LL_WARNING, "MASTER timeout: no data nor PING received...");
