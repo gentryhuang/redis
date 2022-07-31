@@ -2386,6 +2386,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     // 如果服务器运行在集群模式下，那么执行集群操作，每 100ms 执行一次
     // todo Gossip 协议是按一定频率随机选一些节点进行通信的
     run_with_period(100) {
+        // 每秒执行 10 次
         if (server.cluster_enabled) clusterCron();
     }
 

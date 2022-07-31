@@ -7,10 +7,9 @@
 // 槽数量
 #define CLUSTER_SLOTS 16384
 
-// 集群在线
+// 集群状态 - 在线
 #define CLUSTER_OK 0          /* Everything looks ok */
-
-// 集群下线
+// 集群状态 - 下线
 #define CLUSTER_FAIL 1        /* The cluster can't work */
 
 // 集群节点名字的长度
@@ -22,7 +21,7 @@
 /* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
 
-// 检验下线报告的乘法因子
+// 检验下线报告的乘法因子，下线报告的有效期为 cluster-node-timeout * CLUSTER_FAIL_REPORT_VALIDITY_MULT
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 
 // 撤销主节点 FAIL 状态的乘法因子
@@ -30,7 +29,7 @@
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 
-// 手动故障转移的超时时间 默认 5s
+// 手动故障转移的超时时间，默认 5s，5s 还没完成转移，则撤销本次的手动故障转移
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
@@ -75,6 +74,13 @@ struct clusterNode;
  * - clusterLink:
  *   （1）连接节点所需的有关信息，如：套接字描述符，输入和输出缓冲区，它们用于连接节点的
  *   （2）redisClient 中的连接信息用于连接客户端的
+ *
+ * 集群故障转移小结：
+ * - clusterCron: 定时检测是否自动故障转移，也会驱动手动故障转移；
+ *   - 创建连接的时候，会为连接间接绑定一个读处理器，这个很重要；
+ * - clusterBeforeSleep: 定时驱动故障转移的进度，包括自动和手动；
+ * - clusterCommand: 接收客户端发送的手动故障转移请求
+ *    - 里面处理了客户端的命令；
  */
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
@@ -160,7 +166,8 @@ typedef struct clusterLink {
 #define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
 /* clusterState todo_before_sleep flags. */
-// 以下每个 flag 代表了一个服务器在开始下一个事件循环之前要做的事情
+// 以下每个 flag 代表了一个服务器在开始下一个事件循环之前要做的事情，即 clusterBeforeSleep() 函数根据不同的 flag 执行不同的操作
+// todo 其中触发故障转移（自动故障转移和手动故障转移）的逻辑都在 clusterBeforeSleep() 函数中
 #define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
 #define CLUSTER_TODO_UPDATE_STATE (1<<1)
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
@@ -179,9 +186,8 @@ typedef struct clusterLink {
  * PING、PONG 和 MEET 实际上是同一种消息。PONG 是对 PING 的回复，它的实际格式也为 PING 消息。
  * 而 MEET 则是一种特殊的 PING 消息，用于强制消息的接收者将消息的发送者添加到集群中（如果节点尚未在节点列表中的话）
  */
-
 // PING 消息
-#define CLUSTERMSG_TYPE_PING 0          /* Ping 这是一个节点用来向其他节点发送信息的消息类型*/
+#define CLUSTERMSG_TYPE_PING 0          /* Ping 这是一个节点用来向其他节点发送信息的消息类型 */
 
 // PONG (回复 PING 或 MEET)
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) 对 PING 消息的回复*/
@@ -204,7 +210,7 @@ typedef struct clusterLink {
 // 槽布局已经发生变化，消息发送者要求消息接收者进行相应的更新
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
 
-// 为了进行手动故障转移，暂停各个客户端
+// todo 为了进行手动故障转移，暂停各个客户端
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
@@ -226,6 +232,7 @@ typedef struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
 
     // 最后一次从 node 节点收到下线报告的时间（程序使用这个时间戳来检查下线报告是否过期）
+    // 报告的有效时间为 2 * cluster-note-timeout
     mstime_t time;             /* Time of the last report from this node. */
 
 } clusterNodeFailReport;
@@ -257,7 +264,7 @@ typedef struct clusterNode {
     // 说明：因为取出和设置 slots 数组中的任意一个二进制位的值的复杂度仅为 O(1)，因此：
     //  - 对于一个给定节点的 slots 数组来说，程序检查节点是否负责处理某个槽，复杂度是 O(1)
     //  - 将某个槽指派给节点负责，复杂度是 O(1)
-    unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
+    unsigned char slots[CLUSTER_SLOTS / 8]; /* slots handled by this node */
 
     // 槽信息
     sds slots_info; /* Slots info represented by string. */
@@ -376,7 +383,7 @@ typedef struct clusterState {
     // 上次执行选举或者下次执行选举的时间
     mstime_t failover_auth_time; /* Time of previous or next election. */
 
-    // 节点获得的投票数量
+    // todo 当前节点获得的投票数量，收到主节点同意后会累加该值
     int failover_auth_count;    /* Number of votes received so far. 当前节点是从节点，获取请求成为主节点的赞成票*/
 
     // 如果值为 1 ，表示本节点已经向其他节点发送了投票请求
@@ -385,7 +392,7 @@ typedef struct clusterState {
 
     int failover_auth_rank;     /* This slave rank for current auth request. */
 
-    // todo 当前选举的纪元（集群故障转移的纪元，当前节点（从节点）发起投票）
+    // todo 当前选举的纪元（集群故障转移的纪元，当前节点（要求是从节点）发起投票）
     uint64_t failover_auth_epoch; /* Epoch of the current election. 当前选举的纪元 */
 
     // 为什么从节点当前无法进行故障转移
@@ -395,14 +402,16 @@ typedef struct clusterState {
 
     /* Manual failover state in common. */
 
-    // 手动故障转移执行的时间限制
+    // 手动故障转移执行的结束时间
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
 
     /* Manual failover state of master.*/
+    // master 的手动故障转的从节点
     clusterNode *mf_slave;      /* Slave performing the manual failover. 从节点执行手动故障转移。 */
 
     /* Manual failover state of slave.*/
+    // 从节点的手动故障转移状态
     long long mf_master_offset; /* Master offset the slave needs to start MF or -1 if still not received. */
 
 
@@ -450,15 +459,15 @@ typedef struct {
     // 被选中节点的名称
     char nodename[CLUSTER_NAMELEN]; // 40字节
 
+    /*---------------- 用来表示选中节点运行状态 -----------------*/
     // 当前服务节点最后一次给选中节点发送 PING 命令的时间
     uint32_t ping_sent; // 4 字节
-
     // 当前服务节点最后一次收到选中节点 PONG 回复的时间
     uint32_t pong_received; // 4 字节
+    /*---------------- 用来表示选中节点运行状态 -----------------*/
 
     // 被选中节点的 IP 地址
     char ip[NET_IP_STR_LEN]; // 46 字节 /* IP address last time it was seen */
-
     // 被选中节点和客户端端的通信端口
     uint16_t port;  // 2 字节            /* base port last time it was seen */
     // 被选中节点用于集群通信的端口
@@ -514,7 +523,7 @@ typedef struct {
     char nodename[CLUSTER_NAMELEN]; /* Name of the slots owner. */
 
     // 节点的槽布局
-    unsigned char slots[CLUSTER_SLOTS/8]; /* Slots bitmap. */
+    unsigned char slots[CLUSTER_SLOTS / 8]; /* Slots bitmap. */
 } clusterMsgDataUpdate;
 
 typedef struct {
@@ -618,7 +627,7 @@ typedef struct {
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
 
     // 消息发送者负责的 slots
-    unsigned char myslots[CLUSTER_SLOTS/8];
+    unsigned char myslots[CLUSTER_SLOTS / 8];
 
     // 如果消息发送者是一个从节点，那么这里记录的是消息发送者正在复制的主节点的名字
     // 如果消息发送者是一个主节点，那么这里记录的是 REDIS_NODE_NULL_NAME
@@ -657,8 +666,11 @@ typedef struct {
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+
 int clusterRedirectBlockedClientIfNeeded(client *c);
+
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+
 unsigned long getClusterConnectionsCount(void);
 
 #endif /* __CLUSTER_H */

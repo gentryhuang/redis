@@ -5204,7 +5204,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
             election_timeout = ri->failover_timeout;
 
         /* Abort the failover if I'm not the leader after some time. */
-        // todo 如果一段时间后当前哨兵不是领导者，则中止故障转移，因为确实当前哨兵成为不了 Leader 了；
+        // todo 如果一段时间后当前哨兵不是领导者，则中止故障转移；虽然当前哨兵也判断了主节点客观线下线了，但当前哨兵在故障转移超时时间内成为不了 Leader，只能放弃执行故障转移；
         // 也就是说，如果没有达到故障转移超时时间，下次周期执行时还会尝试。
         if (mstime() - ri->failover_start_time > election_timeout) {
             // 发布故障转移终止消息
@@ -5213,6 +5213,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
             // 中止正在进行的故障转移，重置故障转移状态等
             sentinelAbortFailover(ri);
         }
+
         return;
     }
 
